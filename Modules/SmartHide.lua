@@ -39,7 +39,7 @@ local function InjectOptions()
                 args = {
                     unitframe = {order=1, type="toggle", name="玩家框体"}, 
                     buffs = {order=2, type="toggle", name="增益减益"}, 
-                    cooldowns = {order=3, type="toggle", name="冷却管理器"}, 
+                    cooldowns = {order=3, type="toggle", name="冷却管理器(含防守条)"}, -- 提示文本稍微更新一下
                     actionTimer = {order=4, type="toggle", name="动作计时"}, 
                     minimap = {order=5, type="toggle", name="小地图"},
                     classResource = {order=6, type="toggle", name="职业资源与能量条"},
@@ -67,7 +67,8 @@ local TARGET_FRAMES = {
     "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", 
     "ElvUIPlayerBuffs", "ElvUIPlayerDebuffs", "ElvUI_Bar10", "ElvUI_BarPet", "WishFlex_ResurrectIcon",
     "ElvUF_Target", "WishFlex_CooldownRow2_Anchor", "WishFlex_ActionTimer_Anchor",
-    "WishFlex_ClassBar", "WishFlex_PowerBar", "WishFlex_TertiaryBar", "WishFlex_ManaBar"
+    "WishFlex_ClassBar", "WishFlex_PowerBar", "WishFlex_TertiaryBar", "WishFlex_ManaBar",
+    "WishFlex_DefensiveViewer" -- 注入防守条锚点
 }
 
 local function SetFrameAlphaImmediate(frame, targetAlpha)
@@ -159,7 +160,8 @@ function SH:UpdateVisibility()
                 isControlled = db.filters.unitframe
             elseif (name:find("Buffs") or name:find("Debuffs")) then
                 isControlled = db.filters.buffs
-            elseif (name:find("CooldownViewer") or name == "WishFlex_ResurrectIcon" or name == "WishFlex_CooldownRow2_Anchor") then
+            -- 注入防守条归类判断
+            elseif (name:find("CooldownViewer") or name == "WishFlex_ResurrectIcon" or name == "WishFlex_CooldownRow2_Anchor" or name == "WishFlex_DefensiveViewer") then
                 isControlled = db.filters.cooldowns
             elseif name == "WishFlex_ActionTimer_Anchor" then
                 isControlled = db.filters.actionTimer
@@ -221,7 +223,8 @@ function SH:OnEnable()
     
     E:Delay(2, function()
         if UF and UF.PostUpdateVisibility then self:SecureHook(UF, "PostUpdateVisibility", "UpdateVisibility") end
-        local centers = {"EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "WishFlex_ActionTimer_Anchor", "WishFlex_CooldownRow2_Anchor"}
+        -- 加入 WishFlex_DefensiveViewer 防止移动时闪烁
+        local centers = {"EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "WishFlex_ActionTimer_Anchor", "WishFlex_CooldownRow2_Anchor", "WishFlex_DefensiveViewer"}
         for _, n in ipairs(centers) do
             local f = _G[n]
             if f then

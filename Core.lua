@@ -1,26 +1,21 @@
 local ElvUI = _G.ElvUI
 local E, L, V, P, G = unpack(ElvUI)
 local AddonName, addonTable = ...
-
--- 注册 Media 资源 (路径已更新为 WishFlex)
 local LSM = E.Libs.LSM
 if LSM then
     LSM:Register("statusbar", "WishMouseover", [[Interface\AddOns\ElvUI_WishFlex\Media\Textures\WishMouseover.tga]])
     LSM:Register("statusbar", "WishTarget", [[Interface\AddOns\ElvUI_WishFlex\Media\Textures\WishTarget.tga]])
-    LSM:Register("statusbar", "WishFlex-g1", [[Interface\AddOns\ElvUI_WishFlex\Media\Textures\WishUI-g1.tga]])
+    LSM:Register("statusbar", "Wishq1", [[Interface\AddOns\ElvUI_WishFlex\Media\Textures\Wishq1.tga]])
     LSM:Register("statusbar", "WishFlex-clean", [[Interface\AddOns\ElvUI_WishFlex\Media\Textures\WishUI-clean.tga]])
-    LSM:Register("statusbar", "WishFlex-grad", [[Interface\AddOns\ElvUI_WishFlex\Media\Textures\WishUI-grad.tga]])
-    LSM:Register("statusbar", "WishFlex-g2", [[Interface\AddOns\ElvUI_WishFlex\Media\Textures\WishUI-g2.tga]])
+    LSM:Register("statusbar", "Wish2", [[Interface\AddOns\ElvUI_WishFlex\Media\Textures\Wish2.tga]])
+    LSM:Register("statusbar", "Wish3", [[Interface\AddOns\ElvUI_WishFlex\Media\Textures\Wish3.tga]])
 end
 
--- 核心模块名称变更为 WishFlex，使用缩写 WF
 local WF = E:NewModule('WishFlex', 'AceEvent-3.0', 'AceHook-3.0')
 WF.Title = "|cff00ffccWishFlex|r"
 
 function WF:Initialize()
     self.db = E.db.WishFlex
-    
-    -- 模块映射表
     local moduleMapping = {
         ["chatSetup"] = "WishFlex_ChatSetup",  
         ["keybinder"] = "WishFlex_KeyBinder",
@@ -43,8 +38,8 @@ function WF:Initialize()
         ["dskin"] = "WishFlex_Dskin",
         ["silvermoon"] = "WishFlex_Silvermoon",
         ["stripeSkin"] = "WishFlex_StripeSkin",
-        -- [新增] 职业资源进度条模块
-        ["classResource"] = "ClassResource" 
+        ["classResource"] = "ClassResource", 
+		["ActiveBuffGlow"] = "ActiveBuffGlow",
     }
 
     for configKey, moduleName in pairs(moduleMapping) do

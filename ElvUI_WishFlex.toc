@@ -1,13 +1,14 @@
 ## Interface: 120001
-## Title: |cff00ffccWish|rFlex
-## Author: YourName
+## Title: |cff00ffccW|cff00f8ccI|cff00f1ccS|cff00ebccH|cff00e4ccF|cff00ddaaL|cff00d6aaE|cff00cfaaX|r
+## Author: Wish
 ## Version: 2.0
 ## RequiredDeps: ElvUI
 ## OptionalDeps: LibCustomGlow-1.0, LibSharedMedia-3.0, SharedMedia
 ## SavedVariables: WishFlex_Storage
+## IconTexture: Interface\AddOns\ElvUI_WishFlex\Media\Textures\Logo2.tga
+## Notes-zhCN: ElvUI增强小工具
 
 Core.lua
-Modules\CooldownCustom.lua
 Modules\KeyBinder.lua
 Modules\Teleport.lua
 Modules\RareAlert.lua
@@ -15,7 +16,7 @@ Modules\VehicleBar.lua
 Modules\StripeSkin.lua
 Modules\LustMonitor.lua
 Modules\Silvermoon.lua
-Modules\CooldownTracker.lua
+Modules\CooldownCustom.lua
 Modules\CombatAlert.lua
 Modules\ClassResource.lua
 Modules\ActionTimer.lua
@@ -23,6 +24,7 @@ Modules\WishTargetAlert.lua
 Modules\WorldMarker.lua
 Modules\SmartHide.lua
 Modules\Glow.lua
+Modules\ActiveBuffGlow.lua
 Modules\MacroUI.lua
 Modules\RightClick.lua
 Modules\SpellAlpha.lua

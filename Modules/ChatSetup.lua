@@ -2,10 +2,6 @@ local ElvUI = _G.ElvUI
 local E, L, V, P, G = unpack(ElvUI)
 local WUI = E:GetModule('WishFlex')
 local CS = WUI:NewModule('WishFlex_ChatSetup', 'AceEvent-3.0')
-
--- =====================================================================
--- 1. 默认数据库与设置面板注入
--- =====================================================================
 P["WishFlex"] = P["WishFlex"] or { modules = {} }
 P["WishFlex"].modules.chatSetup = true
 
@@ -17,10 +13,6 @@ local function InjectOptions()
         args = { run = { order = 1, type = "execute", name = "同步聊天窗口", confirm = true, func = function() CS:SetupChat() end } }
     }
 end
-
--- =====================================================================
--- 2. 核心功能逻辑
--- =====================================================================
 local ChatTypeGroup = {
     ["综合"] = { "SAY", "EMOTE", "YELL", "WHISPER", "BN_WHISPER", "PARTY", "PARTY_LEADER", "RAID", "RAID_LEADER", "RAID_WARNING", "INSTANCE_CHAT", "INSTANCE_CHAT_LEADER", "GUILD", "OFFICER", "GUILD_ACHIEVEMENT", "ACHIEVEMENT", "MONSTER_SAY", "MONSTER_EMOTE", "MONSTER_YELL", "MONSTER_WHISPER", "MONSTER_BOSS_EMOTE", "MONSTER_BOSS_WHISPER", "LOOT", "MONEY", "CURRENCY", "SKILL", "COMBAT_XP_GAIN", "COMBAT_HONOR_GAIN", "COMBAT_FACTION_CHANGE", "SYSTEM", "ERRORS", "IGNORED", "CHANNEL", "TARGETICONS", "PING" },
     ["团队"] = { "ACHIEVEMENT", "PARTY", "PARTY_LEADER", "RAID", "RAID_LEADER", "RAID_WARNING", "INSTANCE_CHAT", "INSTANCE_CHAT_LEADER", "LOOT", "PING" },

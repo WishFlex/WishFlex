@@ -3,13 +3,9 @@ local E, L, V, P, G = unpack(ElvUI)
 local WF = E:GetModule('WishFlex')
 local CR = WF:NewModule('ClassResource', 'AceEvent-3.0')
 local LSM = E.Libs.LSM
-
 local playerClass = select(2, UnitClass("player"))
 local hasHealerSpec = (playerClass == "PALADIN" or playerClass == "PRIEST" or playerClass == "SHAMAN" or playerClass == "MONK" or playerClass == "DRUID" or playerClass == "EVOKER")
 
--- ==========================================
--- 1. 深度默认配置与安全融合引擎
--- ==========================================
 local defaults = {
     enable = true, 
     alignWithCD = false, 
@@ -44,9 +40,6 @@ local function GetDB()
     return db
 end
 
--- ==========================================
--- 2. 智能上下文引擎
--- ==========================================
 local function GetCurrentContextID()
     if playerClass == "DRUID" then
         local formID = GetShapeshiftFormID()
@@ -89,9 +82,6 @@ local function GetSafeColor(cfg, defColor)
     return {r=1, g=1, b=1}
 end
 
--- ==========================================
--- 3. 设置菜单注入
--- ==========================================
 local function GetSelectedSpec()
     return CR.selectedSpecForConfig or GetCurrentContextID()
 end
@@ -127,13 +117,13 @@ local function InjectOptions()
             general = {
                 order = 1, type = "group", name = "全局排版",
                 args = {
-                    desc = { order = 1, type = "description", name = "全自动识别当前专精与形态，自动切换法力、连击点、符文、火冲、冰刺、残片等！\n" },
+                    desc = { order = 1, type = "description", name = "全自动识别当前专精与形态，自动切换法力、连击点、符文、火冲、冰刺等！\n" },
                     enable = { order = 2, type = "toggle", name = "启用模块", get = function() return E.db.WishFlex.modules.classResource end, set = function(_, v) E.db.WishFlex.modules.classResource = v; E:StaticPopup_Show("CONFIG_RL") end },
                     spacer = { order = 3, type = "description", name = " " },
-                    alignWithCD = { order = 4, type = "toggle", name = "完美对齐冷却管理器" },
+                    alignWithCD = { order = 4, type = "toggle", name = "对齐冷却管理器" },
                     widthOffset = { order = 5, type = "range", name = "边框补偿", min = -10, max = 10, step = 1, disabled = function() return not GetDB().alignWithCD end },
-                    width = { order = 6, type = "range", name = "自定义总宽", min = 50, max = 600, step = 1, disabled = function() return GetDB().alignWithCD end },
-                    yOffset = { order = 7, type = "range", name = "主资源条内间距", min = 0, max = 50, step = 1 },
+                    width = { order = 6, type = "range", name = "自定义宽度", min = 50, max = 600, step = 1, disabled = function() return GetDB().alignWithCD end },
+                    yOffset = { order = 7, type = "range", name = "间距", min = 0, max = 50, step = 1 },
                     texture = { order = 8, type = "select", dialogControl = 'LSM30_Statusbar', name = "全局材质", values = LSM:HashTable("statusbar") },
                 }
             },
@@ -148,107 +138,165 @@ local function InjectOptions()
                     },
                     spacer = { order = 3, type = "description", name = " \n" },
                     
-                    powerHeader = { order = 4, type = "header", name = "主能量条 (法力/怒气/能量等)" },
+                    powerHeader = { order = 4, type = "header", name = "能量条 [法力/怒气/能量]" },
                     showPower = { order = 5, type = "toggle", name = "显示进度条", get = function() return GetCurrentSpecConfig(GetSelectedSpec()).showPower end, set = function(_, val) GetCurrentSpecConfig(GetSelectedSpec()).showPower = val; CR:UpdateLayout() end },
                     textPower = { order = 6, type = "toggle", name = "显示条内文本", get = function() return GetCurrentSpecConfig(GetSelectedSpec()).textPower end, set = function(_, val) GetCurrentSpecConfig(GetSelectedSpec()).textPower = val; CR:UpdateLayout() end },
                     
-                    classHeader = { order = 7, type = "header", name = "特有资源条 (连击点/圣能/符文等)" },
+                    classHeader = { order = 7, type = "header", name = "主资源条 [连击点/圣能/符文]" },
                     showClass = { order = 8, type = "toggle", name = "显示进度条", get = function() return GetCurrentSpecConfig(GetSelectedSpec()).showClass end, set = function(_, val) GetCurrentSpecConfig(GetSelectedSpec()).showClass = val; CR:UpdateLayout() end },
                     textClass = { order = 9, type = "toggle", name = "显示条内文本", get = function() return GetCurrentSpecConfig(GetSelectedSpec()).textClass end, set = function(_, val) GetCurrentSpecConfig(GetSelectedSpec()).textClass = val; CR:UpdateLayout() end },
                     
-                    tertiaryHeader = { order = 10, type = "header", name = "副资源条 (火冲/冰刺/酒池/变形等)" },
+                    tertiaryHeader = { order = 10, type = "header", name = "副资源条 [火冲/冰刺/酒池]" },
                     showTertiary = { order = 11, type = "toggle", name = "显示进度条", get = function() return GetCurrentSpecConfig(GetSelectedSpec()).showTertiary end, set = function(_, val) GetCurrentSpecConfig(GetSelectedSpec()).showTertiary = val; CR:UpdateLayout() end },
                     textTertiary = { order = 12, type = "toggle", name = "显示条内文本", get = function() return GetCurrentSpecConfig(GetSelectedSpec()).textTertiary end, set = function(_, val) GetCurrentSpecConfig(GetSelectedSpec()).textTertiary = val; CR:UpdateLayout() end },
                     
-                    manaHeader = { order = 13, type = "header", name = "混合职业专属：额外法力值条 (独立锚点)", hidden = function() return not hasHealerSpec end },
+                    manaHeader = { order = 13, type = "header", name = "混合职业专属：额外法力值条", hidden = function() return not hasHealerSpec end },
                     showMana = { order = 14, type = "toggle", name = "显示额外法力条", hidden = function() return not hasHealerSpec end, get = function() return GetCurrentSpecConfig(GetSelectedSpec()).showMana end, set = function(_, val) GetCurrentSpecConfig(GetSelectedSpec()).showMana = val; CR:UpdateLayout() end },
                     textMana = { order = 15, type = "toggle", name = "显示条内文本", hidden = function() return not hasHealerSpec end, get = function() return GetCurrentSpecConfig(GetSelectedSpec()).textMana end, set = function(_, val) GetCurrentSpecConfig(GetSelectedSpec()).textMana = val; CR:UpdateLayout() end },
                 }
             },
             powerTab = {
                 order = 3, type = "group", 
-                name = function() return GetCurrentSpecConfig(GetSelectedSpec()).showPower and "主能量设置" or "|cff888888主能量设置(已停用)|r" end,
+                name = function() return GetCurrentSpecConfig(GetSelectedSpec()).showPower and "能量条" or "|cff888888能量条(已停用)|r" end,
                 disabled = function() return not GetCurrentSpecConfig(GetSelectedSpec()).showPower end,
                 get = function(i) return GetDB().power[i[#i]] end,
                 set = function(i, v) GetDB().power[i[#i]] = v; CR:UpdateLayout() end,
                 args = {
-                    enable = { order = 1, type = "toggle", name = "全局启用开关" },
-                    height = { order = 2, type = "range", name = "高度", min = 2, max = 50, step = 1 },
-                    useCustomColor = { order = 3, type = "toggle", name = "使用自定义条颜色" },
-                    customColor = { order = 4, type = "color", name = "自定义颜色", disabled = function() return not GetDB().power.useCustomColor end, get = function() local t = GetDB().power.customColor return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().power.customColor = {r=r,g=g,b=b}; CR:UpdateLayout() end },
-                    textFormat = { order = 5, type = "select", name = "文本格式", values = { ["PERCENT"] = "百分比", ["ABSOLUTE"] = "具体数值", ["BOTH"] = "数值 / 最大值", ["NONE"] = "隐藏" } },
-                    font = { order = 6, type = "select", dialogControl = 'LSM30_Font', name = "字体", values = LSM:HashTable("font") },
-                    fontSize = { order = 7, type = "range", name = "大小", min = 8, max = 40, step = 1 },
-                    outline = { order = 8, type = "select", name = "描边", values = { ["NONE"] = "无", ["OUTLINE"] = "普通", ["THICKOUTLINE"] = "粗描边" } },
-                    color = { order = 9, type = "color", name = "文本颜色", get = function() local t = GetDB().power.color return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().power.color = {r=r,g=g,b=b}; CR:UpdateLayout() end },
-                    xOffset = { order = 10, type = "range", name = "文本 X 偏移", min = -200, max = 200, step = 1 },
-                    yOffset = { order = 11, type = "range", name = "文本 Y 偏移", min = -100, max = 100, step = 1 },
+                    barGroup = {
+                        order = 1, type = "group", name = "能量条", guiInline = true,
+                        args = {
+                            enable = { order = 1, type = "toggle", name = "启用" },
+                            height = { order = 2, type = "range", name = "高度", min = 2, max = 50, step = 1 },
+                            useCustomColor = { order = 3, type = "toggle", name = "自定义颜色" },
+                            customColor = { order = 4, type = "color", name = "颜色", disabled = function() return not GetDB().power.useCustomColor end, get = function() local t = GetDB().power.customColor return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().power.customColor = {r=r,g=g,b=b}; CR:UpdateLayout() end },
+                        }
+                    },
+                    fontGroup = {
+                        order = 2, type = "group", name = "文本样式", guiInline = true,
+                        args = {
+                            font = { order = 1, type = "select", dialogControl = 'LSM30_Font', name = "字体", values = LSM:HashTable("font") },
+                            fontSize = { order = 2, type = "range", name = "大小", min = 8, max = 40, step = 1 },
+                            outline = { order = 3, type = "select", name = "描边", values = { ["NONE"] = "无", ["OUTLINE"] = "普通", ["THICKOUTLINE"] = "粗描边" } },
+                            color = { order = 4, type = "color", name = "颜色", get = function() local t = GetDB().power.color return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().power.color = {r=r,g=g,b=b}; CR:UpdateLayout() end },
+                        }
+                    },
+                    layoutGroup = {
+                        order = 3, type = "group", name = "文本排版", guiInline = true,
+                        args = {
+                            textFormat = { order = 1, type = "select", name = "文本格式", values = { ["PERCENT"] = "百分比", ["ABSOLUTE"] = "具体数值", ["BOTH"] = "数值 / 最大值", ["NONE"] = "隐藏" } },
+                            xOffset = { order = 2, type = "range", name = "X 偏移", min = -200, max = 200, step = 1 },
+                            yOffset = { order = 3, type = "range", name = "Y 偏移", min = -100, max = 100, step = 1 },
+                        }
+                    }
                 }
             },
             classTab = {
                 order = 4, type = "group", 
-                name = function() return GetCurrentSpecConfig(GetSelectedSpec()).showClass and "特有资源设置" or "|cff888888特有资源设置(已停用)|r" end,
+                name = function() return GetCurrentSpecConfig(GetSelectedSpec()).showClass and "主资源条" or "|cff888888主资源条(已停用)|r" end,
                 disabled = function() return not GetCurrentSpecConfig(GetSelectedSpec()).showClass end,
                 get = function(i) return GetDB().class[i[#i]] end,
                 set = function(i, v) GetDB().class[i[#i]] = v; CR:UpdateLayout() end,
                 args = {
-                    enable = { order = 1, type = "toggle", name = "全局启用开关" },
-                    height = { order = 2, type = "range", name = "高度", min = 2, max = 50, step = 1 },
-                    useCustomColor = { order = 3, type = "toggle", name = "使用自定义条颜色" },
-                    customColor = { order = 4, type = "color", name = "自定义颜色", disabled = function() return not GetDB().class.useCustomColor end, get = function() local t = GetDB().class.customColor return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().class.customColor = {r=r,g=g,b=b}; CR:UpdateLayout() end },
-                    textFormat = { order = 5, type = "select", name = "文本格式", values = { ["PERCENT"] = "百分比", ["ABSOLUTE"] = "具体数值", ["BOTH"] = "数值 / 最大值", ["NONE"] = "隐藏" } },
-                    font = { order = 6, type = "select", dialogControl = 'LSM30_Font', name = "字体", values = LSM:HashTable("font") },
-                    fontSize = { order = 7, type = "range", name = "大小", min = 8, max = 40, step = 1 },
-                    outline = { order = 8, type = "select", name = "描边", values = { ["NONE"] = "无", ["OUTLINE"] = "普通", ["THICKOUTLINE"] = "粗描边" } },
-                    color = { order = 9, type = "color", name = "文本颜色", get = function() local t = GetDB().class.color return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().class.color = {r=r,g=g,b=b}; CR:UpdateLayout() end },
-                    xOffset = { order = 10, type = "range", name = "文本 X 偏移", min = -200, max = 200, step = 1 },
-                    yOffset = { order = 11, type = "range", name = "文本 Y 偏移", min = -100, max = 100, step = 1 },
+                    barGroup = {
+                        order = 1, type = "group", name = "设置", guiInline = true,
+                        args = {
+                            enable = { order = 1, type = "toggle", name = "启用" },
+                            height = { order = 2, type = "range", name = "高度", min = 2, max = 50, step = 1 },
+                            useCustomColor = { order = 3, type = "toggle", name = "自定义颜色" },
+                            customColor = { order = 4, type = "color", name = "颜色", disabled = function() return not GetDB().class.useCustomColor end, get = function() local t = GetDB().class.customColor return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().class.customColor = {r=r,g=g,b=b}; CR:UpdateLayout() end },
+                        }
+                    },
+                    fontGroup = {
+                        order = 2, type = "group", name = "文本样式", guiInline = true,
+                        args = {
+                            font = { order = 1, type = "select", dialogControl = 'LSM30_Font', name = "字体", values = LSM:HashTable("font") },
+                            fontSize = { order = 2, type = "range", name = "大小", min = 8, max = 40, step = 1 },
+                            outline = { order = 3, type = "select", name = "描边", values = { ["NONE"] = "无", ["OUTLINE"] = "普通", ["THICKOUTLINE"] = "粗描边" } },
+                            color = { order = 4, type = "color", name = "颜色", get = function() local t = GetDB().class.color return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().class.color = {r=r,g=g,b=b}; CR:UpdateLayout() end },
+                        }
+                    },
+                    layoutGroup = {
+                        order = 3, type = "group", name = "文本排版", guiInline = true,
+                        args = {
+                            textFormat = { order = 1, type = "select", name = "文本格式", values = { ["PERCENT"] = "百分比", ["ABSOLUTE"] = "具体数值", ["BOTH"] = "数值 / 最大值", ["NONE"] = "隐藏" } },
+                            xOffset = { order = 2, type = "range", name = "X 偏移", min = -200, max = 200, step = 1 },
+                            yOffset = { order = 3, type = "range", name = "Y 偏移", min = -100, max = 100, step = 1 },
+                        }
+                    }
                 }
             },
             tertiaryTab = {
                 order = 5, type = "group", 
-                name = function() return GetCurrentSpecConfig(GetSelectedSpec()).showTertiary and "副资源设置" or "|cff888888副资源设置(已停用)|r" end,
+                name = function() return GetCurrentSpecConfig(GetSelectedSpec()).showTertiary and "副资源条" or "|cff888888副资源条(已停用)|r" end,
                 disabled = function() return not GetCurrentSpecConfig(GetSelectedSpec()).showTertiary end,
                 get = function(i) return GetDB().tertiary[i[#i]] end,
                 set = function(i, v) GetDB().tertiary[i[#i]] = v; CR:UpdateLayout() end,
                 args = {
-                    enable = { order = 1, type = "toggle", name = "全局启用开关" },
-                    height = { order = 2, type = "range", name = "高度", min = 2, max = 50, step = 1 },
-                    useCustomColor = { order = 3, type = "toggle", name = "使用自定义条颜色" },
-                    customColor = { order = 4, type = "color", name = "自定义颜色", disabled = function() return not GetDB().tertiary.useCustomColor end, get = function() local t = GetDB().tertiary.customColor return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().tertiary.customColor = {r=r,g=g,b=b}; CR:UpdateLayout() end },
-                    textFormat = { order = 5, type = "select", name = "文本格式", values = { ["PERCENT"] = "百分比", ["ABSOLUTE"] = "具体数值", ["BOTH"] = "数值 / 最大值", ["NONE"] = "隐藏" } },
-                    font = { order = 6, type = "select", dialogControl = 'LSM30_Font', name = "字体", values = LSM:HashTable("font") },
-                    fontSize = { order = 7, type = "range", name = "大小", min = 8, max = 40, step = 1 },
-                    outline = { order = 8, type = "select", name = "描边", values = { ["NONE"] = "无", ["OUTLINE"] = "普通", ["THICKOUTLINE"] = "粗描边" } },
-                    color = { order = 9, type = "color", name = "文本颜色", get = function() local t = GetDB().tertiary.color return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().tertiary.color = {r=r,g=g,b=b}; CR:UpdateLayout() end },
-                    xOffset = { order = 10, type = "range", name = "文本 X 偏移", min = -200, max = 200, step = 1 },
-                    yOffset = { order = 11, type = "range", name = "文本 Y 偏移", min = -100, max = 100, step = 1 },
+                    barGroup = {
+                        order = 1, type = "group", name = "设置", guiInline = true,
+                        args = {
+                            enable = { order = 1, type = "toggle", name = "启用" },
+                            height = { order = 2, type = "range", name = "高度", min = 2, max = 50, step = 1 },
+                            useCustomColor = { order = 3, type = "toggle", name = "自定义颜色" },
+                            customColor = { order = 4, type = "color", name = "颜色", disabled = function() return not GetDB().tertiary.useCustomColor end, get = function() local t = GetDB().tertiary.customColor return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().tertiary.customColor = {r=r,g=g,b=b}; CR:UpdateLayout() end },
+                        }
+                    },
+                    fontGroup = {
+                        order = 2, type = "group", name = "文本样式", guiInline = true,
+                        args = {
+                            font = { order = 1, type = "select", dialogControl = 'LSM30_Font', name = "字体", values = LSM:HashTable("font") },
+                            fontSize = { order = 2, type = "range", name = "大小", min = 8, max = 40, step = 1 },
+                            outline = { order = 3, type = "select", name = "描边", values = { ["NONE"] = "无", ["OUTLINE"] = "普通", ["THICKOUTLINE"] = "粗描边" } },
+                            color = { order = 4, type = "color", name = "颜色", get = function() local t = GetDB().tertiary.color return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().tertiary.color = {r=r,g=g,b=b}; CR:UpdateLayout() end },
+                        }
+                    },
+                    layoutGroup = {
+                        order = 3, type = "group", name = "文本排版", guiInline = true,
+                        args = {
+                            textFormat = { order = 1, type = "select", name = "文本格式", values = { ["PERCENT"] = "百分比", ["ABSOLUTE"] = "具体数值", ["BOTH"] = "数值 / 最大值", ["NONE"] = "隐藏" } },
+                            xOffset = { order = 2, type = "range", name = "X 偏移", min = -200, max = 200, step = 1 },
+                            yOffset = { order = 3, type = "range", name = "Y 偏移", min = -100, max = 100, step = 1 },
+                        }
+                    }
                 }
             },
             manaTab = {
                 order = 6, type = "group", 
-                name = function() return GetCurrentSpecConfig(GetSelectedSpec()).showMana and "专属法力条(独立)" or "|cff888888专属法力条(独立/已停用)|r" end,
+                name = function() return GetCurrentSpecConfig(GetSelectedSpec()).showMana and "专属法力条" or "|cff888888专属法力条(已停用)|r" end,
                 hidden = function() return not hasHealerSpec end,
                 disabled = function() return not GetCurrentSpecConfig(GetSelectedSpec()).showMana end,
                 get = function(i) return GetDB().mana[i[#i]] end,
                 set = function(i, v) GetDB().mana[i[#i]] = v; CR:UpdateLayout() end,
                 args = {
-                    desc = { order = 1, type = "description", name = "注意：法力值将强制使用百分比显示。\n|cff00ff00此条拥有独立的锚点，可单独解锁移动！|r\n" },
-                    enable = { order = 2, type = "toggle", name = "全局启用开关" },
-                    
-                    barXOffset = { order = 2.1, type = "range", name = "法力条整体 X 偏移", min = -500, max = 500, step = 1 },
-                    barYOffset = { order = 2.2, type = "range", name = "法力条整体 Y 偏移", min = -500, max = 500, step = 1 },
-                    
-                    height = { order = 3, type = "range", name = "高度", min = 2, max = 50, step = 1 },
-                    useCustomColor = { order = 3.5, type = "toggle", name = "使用自定义条颜色" },
-                    customColor = { order = 3.6, type = "color", name = "自定义颜色", disabled = function() return not GetDB().mana.useCustomColor end, get = function() local t = GetDB().mana.customColor return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().mana.customColor = {r=r,g=g,b=b}; CR:UpdateLayout() end },
-                    textFormat = { order = 4, type = "select", name = "文本格式", values = { ["PERCENT"] = "百分比", ["ABSOLUTE"] = "具体数值", ["BOTH"] = "数值 / 最大值", ["NONE"] = "隐藏" } },
-                    font = { order = 5, type = "select", dialogControl = 'LSM30_Font', name = "字体", values = LSM:HashTable("font") },
-                    fontSize = { order = 6, type = "range", name = "大小", min = 8, max = 40, step = 1 },
-                    outline = { order = 7, type = "select", name = "描边", values = { ["NONE"] = "无", ["OUTLINE"] = "普通", ["THICKOUTLINE"] = "粗描边" } },
-                    color = { order = 8, type = "color", name = "文本颜色", get = function() local t = GetDB().mana.color return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().mana.color = {r=r,g=g,b=b}; CR:UpdateLayout() end },
-                    xOffset = { order = 9, type = "range", name = "文本 X 偏移", min = -200, max = 200, step = 1 },
-                    yOffset = { order = 10, type = "range", name = "文本 Y 偏移", min = -100, max = 100, step = 1 },
+                    barGroup = {
+                        order = 1, type = "group", name = "设置", guiInline = true,
+                        args = {
+                            desc = { order = 1, type = "description", name = "注意：法力值将强制使用百分比显示。\n|cff00ff00此条拥有独立的锚点，可单独解锁移动！|r\n" },
+                            enable = { order = 2, type = "toggle", name = "全局启用开关" },
+                            height = { order = 3, type = "range", name = "高度", min = 2, max = 50, step = 1 },
+                            barXOffset = { order = 4, type = "range", name = "X 偏移", min = -500, max = 500, step = 1 },
+                            barYOffset = { order = 5, type = "range", name = "Y 偏移", min = -500, max = 500, step = 1 },
+                            useCustomColor = { order = 6, type = "toggle", name = "自定义颜色" },
+                            customColor = { order = 7, type = "color", name = "颜色", disabled = function() return not GetDB().mana.useCustomColor end, get = function() local t = GetDB().mana.customColor return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().mana.customColor = {r=r,g=g,b=b}; CR:UpdateLayout() end },
+                        }
+                    },
+                    fontGroup = {
+                        order = 2, type = "group", name = "文本样式", guiInline = true,
+                        args = {
+                            font = { order = 1, type = "select", dialogControl = 'LSM30_Font', name = "字体", values = LSM:HashTable("font") },
+                            fontSize = { order = 2, type = "range", name = "大小", min = 8, max = 40, step = 1 },
+                            outline = { order = 3, type = "select", name = "描边", values = { ["NONE"] = "无", ["OUTLINE"] = "普通", ["THICKOUTLINE"] = "粗描边" } },
+                            color = { order = 4, type = "color", name = "颜色", get = function() local t = GetDB().mana.color return t.r, t.g, t.b end, set = function(_, r, g, b) GetDB().mana.color = {r=r,g=g,b=b}; CR:UpdateLayout() end },
+                        }
+                    },
+                    layoutGroup = {
+                        order = 3, type = "group", name = "文本排版", guiInline = true,
+                        args = {
+                            textFormat = { order = 1, type = "select", name = "文本格式", values = { ["PERCENT"] = "百分比", ["ABSOLUTE"] = "具体数值", ["BOTH"] = "数值 / 最大值", ["NONE"] = "隐藏" } },
+                            xOffset = { order = 2, type = "range", name = "X 偏移", min = -200, max = 200, step = 1 },
+                            yOffset = { order = 3, type = "range", name = "Y 偏移", min = -100, max = 100, step = 1 },
+                        }
+                    }
                 }
             }
         }
@@ -293,9 +341,6 @@ local function GetTargetWidth()
     return tonumber(db.width) or 250
 end
 
--- ==========================================
--- 5. 核心数据解析引擎
--- ==========================================
 local function GetClassResourceData()
     local spec = GetSpecializationInfo(GetSpecialization() or 1)
     local pType = UnitPowerType("player")
@@ -304,7 +349,6 @@ local function GetClassResourceData()
     elseif playerClass == "PALADIN" then return UnitPower("player", 9), 5, GetPowerColor(9), true
     elseif playerClass == "WARLOCK" then return UnitPower("player", 7), 5, GetPowerColor(7), true
     elseif playerClass == "MAGE" and spec == 62 then return UnitPower("player", 16), 4, GetPowerColor(16), true
-    -- 【武僧踏风专属优化】：动态读取真气上限，防止未点天赋时的最大值显示错误
     elseif playerClass == "MONK" and spec == 269 then return UnitPower("player", 12), UnitPowerMax("player", 12), GetPowerColor(12), true
     elseif playerClass == "EVOKER" then return UnitPower("player", 19), 6, GetPowerColor(19), true
     elseif playerClass == "DEATHKNIGHT" then return UnitPower("player", 5), 6, GetPowerColor(5), true
@@ -427,9 +471,6 @@ local function GetTertiaryResourceData()
     return 0, 0, {r=1,g=1,b=1}, false, 1, false
 end
 
--- ==========================================
--- 6. 界面排版与切割引擎
--- ==========================================
 function CR:UpdateDividers(bar, maxVal)
     bar.dividers = bar.dividers or {}
     local numMax = tonumber(maxVal) or 1
@@ -503,9 +544,6 @@ local function FormatSafeText(bar, textCfg, current, maxVal, isTime, pType, show
     end)
 end
 
--- ==========================================
--- 7. 自动排版与状态刷新
--- ==========================================
 function CR:UpdateLayout()
     if not self.anchor then return end
     local db = GetDB()
@@ -640,9 +678,6 @@ function CR:DynamicTick()
     end)
 end
 
--- ==========================================
--- 8. 框架创建与初始化
--- ==========================================
 function CR:CreateBarContainer(name, parent)
     local bar = CreateFrame("Frame", name, parent, "BackdropTemplate")
     bar:SetTemplate("Transparent")
