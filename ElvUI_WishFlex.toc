@@ -24,11 +24,9 @@ Modules\WishTargetAlert.lua
 Modules\WorldMarker.lua
 Modules\SmartHide.lua
 Modules\Glow.lua
-Modules\ActiveBuffGlow.lua
 Modules\MacroUI.lua
 Modules\RightClick.lua
 Modules\SpellAlpha.lua
 Modules\DialogueSkin.lua
 Modules\ChatSetup.lua
-Modules\Dskin.lua
 Options.lua
