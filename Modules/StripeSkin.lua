@@ -37,28 +37,34 @@ local function ApplyWishStyle(f)
     target.WishStripe = stripe
 end
 
+-- 【性能优化】：通过 Lua 栈迭代解决 {win:GetChildren()} 带来的疯狂建表内存泄漏
+local function SafeSkinChildren(...)
+    for i = 1, select("#", ...) do
+        local child = select(i, ...)
+        if child and child.backdrop then ApplyWishStyle(child) end
+    end
+end
+
 local function HeartbeatScan()
     if not E.db.WishFlex.modules.stripeSkin then return end
     if LeftChatPanel then ApplyWishStyle(LeftChatPanel) end
     if RightChatPanel then ApplyWishStyle(RightChatPanel) end
 
     local windows = { _G["ElvConfigFrame"], _G["WorldMapFrame"], _G["CharacterFrame"], _G["PVEFrame"], _G["SpellBookFrame"], _G["MacroFrame"], _G["ElvUI_CopyChatFrame"], _G["UIMurlokExport"] }
-    for _, win in pairs(windows) do
+    for _, win in ipairs(windows) do
         if win and win:IsVisible() then
             ApplyWishStyle(win)
             if win.backdrop then ApplyWishStyle(win.backdrop) end
-            local children = {win:GetChildren()}
-            for _, child in ipairs(children) do if child.backdrop then ApplyWishStyle(child) end end
+            SafeSkinChildren(win:GetChildren()) -- 0 表分配，彻底解决 GC 暴涨
         end
     end
     
+    -- 【性能优化】：精准命中 Baganator 常用框体，废除 UIParent 的全局深层扫描
     if C_AddOns.IsAddOnLoaded("Baganator") then
-        local children = {UIParent:GetChildren()}
-        for _, child in ipairs(children) do
-            if not child:IsForbidden() then
-                local name = child:GetName()
-                if name and name:find("Baganator") then ApplyWishStyle(child) end
-            end
+        local bagFrames = { "Baganator_BackpackViewFrame", "Baganator_BankViewFrame", "Baganator_GuildViewFrame" }
+        for _, name in ipairs(bagFrames) do
+            local win = _G[name]
+            if win then ApplyWishStyle(win) end
         end
     end
 end
@@ -76,5 +82,6 @@ function MOD:OnEnable()
         if S[func] then hooksecurefunc(S, func, function(_, frame) if frame then ApplyWishStyle(frame) end end) end
     end
 
-    C_Timer.NewTicker(1, HeartbeatScan)
+    -- 将心跳扫描频率稍微放宽至 2 秒，因为这是辅助美化，不需要毫秒级反应
+    C_Timer.NewTicker(2, HeartbeatScan)
 end

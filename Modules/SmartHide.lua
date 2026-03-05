@@ -4,9 +4,6 @@ local WF = E:GetModule('WishFlex')
 local SH = WF:NewModule('SmartHide', 'AceEvent-3.0', 'AceTimer-3.0', 'AceHook-3.0')
 local UF = E:GetModule('UnitFrames')
 
--- ==========================================
--- 1. 默认数据库
--- ==========================================
 P["WishFlex"] = P["WishFlex"] or { modules = {} }
 P["WishFlex"].modules.smarthide = true
 P["WishFlex"].smarthide = {
@@ -14,9 +11,6 @@ P["WishFlex"].smarthide = {
     filters = { unitframe = true, buffs = true, cooldowns = true, actionbar = true, minimap = true, friendly = false, actionTimer = true, classResource = true },
 }
 
--- ==========================================
--- 2. 设置面板注入
--- ==========================================
 local function InjectOptions()
     WF.OptionsArgs = WF.OptionsArgs or {}
     WF.OptionsArgs.smarthide = WF.OptionsArgs.smarthide or { order = 10, type = "group", name = "|cff00ffcc智能隐藏|r", childGroups = "tab", args = {} }
@@ -39,7 +33,7 @@ local function InjectOptions()
                 args = {
                     unitframe = {order=1, type="toggle", name="玩家框体"}, 
                     buffs = {order=2, type="toggle", name="增益减益"}, 
-                    cooldowns = {order=3, type="toggle", name="冷却管理器(含防守条)"}, -- 提示文本稍微更新一下
+                    cooldowns = {order=3, type="toggle", name="冷却管理器(含防守条)"}, 
                     actionTimer = {order=4, type="toggle", name="动作计时"}, 
                     minimap = {order=5, type="toggle", name="小地图"},
                     classResource = {order=6, type="toggle", name="职业资源与能量条"},
@@ -50,38 +44,68 @@ local function InjectOptions()
     }
 end
 
--- ==========================================
--- 3. 核心隐藏逻辑
--- ==========================================
 local BuffHost = CreateFrame("Frame", "WishBuffHost", UIParent)
 local DebuffHost = CreateFrame("Frame", "WishDebuffHost", UIParent)
 local Bar10Host = CreateFrame("Frame", "WishBar10Host", UIParent)
 local BarPetHost = CreateFrame("Frame", "WishBarPetHost", UIParent)
 BuffHost:Show(); DebuffHost:Show(); Bar10Host:Show(); BarPetHost:Show()
 
-local HiddenFrame = CreateFrame("Frame")
-HiddenFrame:Hide()
+local HiddenFrame = CreateFrame("Frame"); HiddenFrame:Hide()
 
-local TARGET_FRAMES = {
-    "ElvUF_Player.Health", "ElvUF_Player.Portrait", "ElvUF_Player.InfoPanel", "ElvUF_Player.backdrop",
-    "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", 
-    "ElvUIPlayerBuffs", "ElvUIPlayerDebuffs", "ElvUI_Bar10", "ElvUI_BarPet", "WishFlex_ResurrectIcon",
-    "ElvUF_Target", "WishFlex_CooldownRow2_Anchor", "WishFlex_ActionTimer_Anchor",
-    "WishFlex_ClassBar", "WishFlex_PowerBar", "WishFlex_TertiaryBar", "WishFlex_ManaBar",
-    "WishFlex_DefensiveViewer" -- 注入防守条锚点
+local FRAME_CATEGORIES = {
+    ["ElvUF_Player.Health"] = { cat = "unitframe", isPlayerOnly = true },
+    ["ElvUF_Player.Portrait"] = { cat = "unitframe", isPlayerOnly = true },
+    ["ElvUF_Player.InfoPanel"] = { cat = "unitframe", isPlayerOnly = true },
+    ["ElvUF_Player.backdrop"] = { cat = "unitframe", isPlayerOnly = true },
+    ["ElvUF_Target"] = { cat = "unitframe", isPlayerOnly = false },
+    ["EssentialCooldownViewer"] = { cat = "cooldowns", isPlayerOnly = false },
+    ["UtilityCooldownViewer"] = { cat = "cooldowns", isPlayerOnly = false },
+    ["BuffIconCooldownViewer"] = { cat = "cooldowns", isPlayerOnly = false },
+    ["WishFlex_CooldownRow2_Anchor"] = { cat = "cooldowns", isPlayerOnly = false },
+    ["WishFlex_DefensiveViewer"] = { cat = "cooldowns", isPlayerOnly = false },
+    ["WishFlex_ResurrectIcon"] = { cat = "cooldowns", isPlayerOnly = false, isResIcon = true },
+    ["WishFlex_ActionTimer_Anchor"] = { cat = "actionTimer", isPlayerOnly = false },
+    ["WishFlex_ClassBar"] = { cat = "classResource", isPlayerOnly = false },
+    ["WishFlex_PowerBar"] = { cat = "classResource", isPlayerOnly = false },
+    ["WishFlex_TertiaryBar"] = { cat = "classResource", isPlayerOnly = false },
+    ["WishFlex_ManaBar"] = { cat = "classResource", isPlayerOnly = false },
+    ["ElvUIPlayerBuffs"] = { cat = "buffs", isSpecialHost = "BuffHost" },
+    ["ElvUIPlayerDebuffs"] = { cat = "buffs", isSpecialHost = "DebuffHost" },
+    ["ElvUI_Bar10"] = { cat = "actionbar", isSpecialHost = "Bar10Host" },
+    ["ElvUI_BarPet"] = { cat = "actionbar", isSpecialHost = "BarPetHost" }
 }
+
+-- 【修复核心】：延迟加载型安全缓存，只要没拿到真实的 Frame，就一直允许重试查询，不再将 nil 存为 false
+local FrameCache = {}
+local function GetCachedFrame(name)
+    if FrameCache[name] then return FrameCache[name] end
+    
+    local f = _G[name]
+    if not f and name:find("%.") then
+        local parts = {strsplit(".", name)}
+        f = _G[parts[1]]
+        if f then 
+            for i = 2, #parts do 
+                f = f[parts[i]] 
+                if not f then break end
+            end 
+        end
+    end
+    
+    if f then FrameCache[name] = f end
+    return f
+end
 
 local function SetFrameAlphaImmediate(frame, targetAlpha)
     if not frame then return end
-    
     if frame.isForceHidden then
         if frame:IsShown() then frame:Hide() end
-        frame:SetAlpha(0)
+        if frame:GetAlpha() ~= 0 then frame:SetAlpha(0) end
         return
     end
 
     UIFrameFadeRemoveFrame(frame) 
-    frame:SetAlpha(targetAlpha)
+    if frame:GetAlpha() ~= targetAlpha then frame:SetAlpha(targetAlpha) end
     
     local name = frame:GetName() or ""
     if name:find("ElvUF_") then return end
@@ -127,9 +151,6 @@ function SH:UpdateVisibility()
     
     local isFlying = IsPlayerFlying() 
     local inPetBattle = C_PetBattles and C_PetBattles.IsInBattle()
-    
-    -- 【世纪 BUG 修复】：暴雪底层对武僧的 OverrideActionBar 有毒判断！
-    -- 彻底移除 HasOverrideActionBar()，改用极度严谨的 UnitHasVehicleUI！
     local inVehicle = UnitInVehicle("player") or UnitHasVehicleUI("player")
 
     local shouldShowMinimap = (inCombat or hasTarget or isFlying) and not inPetBattle
@@ -139,49 +160,31 @@ function SH:UpdateVisibility()
 
     if db.forceShow then shouldShowMinimap = true; shouldShowPlayerOnly = true; shouldShowOthers = true end
 
-    if db.filters.minimap then self:UpdateMinimap(shouldShowMinimap) else self:UpdateMinimap(true) end
+    self:UpdateMinimap(db.filters.minimap and shouldShowMinimap or true)
 
-    for _, name in ipairs(TARGET_FRAMES) do
-        local f = _G[name]
-        if not f and name:find("%.") then
-            local parts = {strsplit(".", name)}
-            f = _G[parts[1]]
-            if f then for i = 2, #parts do if f then f = f[parts[i]] end end end
-        end
-
+    for name, info in pairs(FRAME_CATEGORIES) do
+        local f = GetCachedFrame(name)
         if f then
-            local targetAlpha = shouldShowOthers and 1 or 0
-            if (name == "ElvUF_Player.Health" or name == "ElvUF_Player.Portrait" or name == "ElvUF_Player.backdrop" or name == "ElvUF_Player.InfoPanel") then
+            local targetAlpha
+            if info.isPlayerOnly then
                 targetAlpha = shouldShowPlayerOnly and 1 or 0
-            end
-            
-            local isControlled = true
-            if (name:find("Health") or name:find("Portrait") or name:find("backdrop") or name:find("InfoPanel") or name == "ElvUF_Target") then
-                isControlled = db.filters.unitframe
-            elseif (name:find("Buffs") or name:find("Debuffs")) then
-                isControlled = db.filters.buffs
-            -- 注入防守条归类判断
-            elseif (name:find("CooldownViewer") or name == "WishFlex_ResurrectIcon" or name == "WishFlex_CooldownRow2_Anchor" or name == "WishFlex_DefensiveViewer") then
-                isControlled = db.filters.cooldowns
-            elseif name == "WishFlex_ActionTimer_Anchor" then
-                isControlled = db.filters.actionTimer
-            elseif (name == "ElvUI_Bar10" or name == "ElvUI_BarPet") then
-                isControlled = db.filters.actionbar
-            elseif (name == "WishFlex_ClassBar" or name == "WishFlex_PowerBar" or name == "WishFlex_TertiaryBar" or name == "WishFlex_ManaBar") then
-                isControlled = db.filters.classResource
+            else
+                targetAlpha = shouldShowOthers and 1 or 0
             end
 
+            local isControlled = db.filters[info.cat]
             if not isControlled then targetAlpha = 1 end
-            if name == "WishFlex_ResurrectIcon" and not (inCombat or (hasTarget and IsInValidResEnvironment())) then targetAlpha = 0 end
 
-            if name == "ElvUIPlayerBuffs" then
+            if info.isResIcon and not (inCombat or (hasTarget and IsInValidResEnvironment())) then targetAlpha = 0 end
+
+            if info.isSpecialHost == "BuffHost" then
                 if f:GetParent() ~= BuffHost then f:SetParent(BuffHost) end; BuffHost:SetAlpha(targetAlpha)
-            elseif name == "ElvUIPlayerDebuffs" then
+            elseif info.isSpecialHost == "DebuffHost" then
                 if f:GetParent() ~= DebuffHost then f:SetParent(DebuffHost) end; DebuffHost:SetAlpha(targetAlpha)
-            elseif name == "ElvUI_Bar10" then
+            elseif info.isSpecialHost == "Bar10Host" then
                 if f:GetParent() ~= Bar10Host then f:SetParent(Bar10Host) end; Bar10Host:SetAlpha(targetAlpha)
-            elseif name == "ElvUI_BarPet" then
-                if f:GetParent() ~= BarPetHost then f:SetParent(BarPetHost) end; local finalPetAlpha = (targetAlpha == 1 and UnitExists("pet")) and 1 or 0; BarPetHost:SetAlpha(finalPetAlpha)
+            elseif info.isSpecialHost == "BarPetHost" then
+                if f:GetParent() ~= BarPetHost then f:SetParent(BarPetHost) end; BarPetHost:SetAlpha((targetAlpha == 1 and UnitExists("pet")) and 1 or 0)
             else
                 SetFrameAlphaImmediate(f, targetAlpha)
             end
@@ -190,17 +193,18 @@ function SH:UpdateVisibility()
 
     local playerFrame = _G["ElvUF_Player"]
     if playerFrame and playerFrame.customTexts then
-        local textAlpha = (shouldShowPlayerOnly and db.filters.unitframe) and 1 or 0
+        local textAlpha = 1
+        if db.filters.unitframe and not shouldShowPlayerOnly then
+            textAlpha = 0
+        end
         if db.forceShow then textAlpha = 1 end
+        
         for _, textFrame in pairs(playerFrame.customTexts) do 
             if textFrame then SetFrameAlphaImmediate(textFrame, textAlpha) end 
         end
     end
 end
 
--- ==========================================
--- 4. 事件注册
--- ==========================================
 function SH:OnEnable()
     InjectOptions()
     if not E.db.WishFlex.modules.smarthide then return end
@@ -223,7 +227,6 @@ function SH:OnEnable()
     
     E:Delay(2, function()
         if UF and UF.PostUpdateVisibility then self:SecureHook(UF, "PostUpdateVisibility", "UpdateVisibility") end
-        -- 加入 WishFlex_DefensiveViewer 防止移动时闪烁
         local centers = {"EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "WishFlex_ActionTimer_Anchor", "WishFlex_CooldownRow2_Anchor", "WishFlex_DefensiveViewer"}
         for _, n in ipairs(centers) do
             local f = _G[n]
@@ -238,7 +241,7 @@ function SH:OnEnable()
     local tickElapsed = 0
     tickerFrame:SetScript("OnUpdate", function(_, delta)
         tickElapsed = tickElapsed + delta
-        local interval = InCombatLockdown() and 0.1 or 0.5
+        local interval = InCombatLockdown() and 0.5 or 1.0
         if tickElapsed >= interval then
             tickElapsed = 0
             SH:UpdateVisibility()

@@ -1,5 +1,5 @@
 ## Interface: 120001
-## Title: |cff00ffccW|cff00f8ccI|cff00f1ccS|cff00ebccH|cff00e4ccF|cff00ddaaL|cff00d6aaE|cff00cfaaX|r
+## Title: |cff00ffccW|cff00f8cci|cff00f1ccs|cff00ebcch|cff00e4ccF|cff00ddaal|cff00d6aae|cff00cfaax|r
 ## Author: Wish
 ## Version: 2.0
 ## RequiredDeps: ElvUI
@@ -17,6 +17,7 @@ Modules\StripeSkin.lua
 Modules\LustMonitor.lua
 Modules\Silvermoon.lua
 Modules\CooldownCustom.lua
+Modules\DefensiveCooldowns.lua
 Modules\CombatAlert.lua
 Modules\ClassResource.lua
 Modules\ActionTimer.lua

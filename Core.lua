@@ -38,6 +38,7 @@ function WF:Initialize()
         ["dskin"] = "WishFlex_Dskin",
         ["silvermoon"] = "WishFlex_Silvermoon",
         ["stripeSkin"] = "WishFlex_StripeSkin",
+        ["DefensiveCooldowns"] = "DefensiveCooldowns",
         ["classResource"] = "ClassResource" 
     }
 

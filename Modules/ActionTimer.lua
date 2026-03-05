@@ -25,6 +25,11 @@ AT.buffDurationCache = {}
 AT.itemSpellMap = {}
 AT.isPreviewing = false
 
+-- 【性能优化】：全局复用常量表，防止 GC 垃圾产生
+local DEFAULT_CD_COLOR = { r = 1, g = 1, b = 1 }
+local DEFAULT_BUFF_COLOR = { r = 0, g = 1, b = 0 }
+local DEFAULT_GLOW_COLOR = { r = 0, g = 1, b = 0.5, a = 1 }
+
 P["WishFlex"] = P["WishFlex"] or { modules = {} }
 P["WishFlex"].modules.actionTimer = true
 P["WishFlex"].actionTimer = {
@@ -32,8 +37,8 @@ P["WishFlex"].actionTimer = {
     width = 45, height = 45, iconGap = 5, growth = "RIGHT",
     countFont = "Expressway", countFontSize = 16, countFontOutline = "OUTLINE",
     countXOffset = 0, countYOffset = 0,
-    cdFontColor = { r = 1, g = 1, b = 1 }, buffFontColor = { r = 0, g = 1, b = 0 },
-    glowColor = { r = 0, g = 1, b = 0.5, a = 1 }, glowLines = 8, glowFreq = 0.25, glowLength = 10, glowThick = 2
+    cdFontColor = DEFAULT_CD_COLOR, buffFontColor = DEFAULT_BUFF_COLOR,
+    glowColor = DEFAULT_GLOW_COLOR, glowLines = 8, glowFreq = 0.25, glowLength = 10, glowThick = 2
 }
 
 V["WishFlex"] = V["WishFlex"] or {}
@@ -218,8 +223,8 @@ function AT:UpdateLayout()
         local cdText = f.Cooldown and f.Cooldown.timer and f.Cooldown.timer.text
         if cdText and type(cdText) == "table" and cdText.SetFont then
             cdText:FontTemplate(fontPath, cfg.countFontSize or 16, cfg.countFontOutline or "OUTLINE")
-            local cdC = cfg.cdFontColor
-            if cdC then cdText:SetTextColor(cdC.r, cdC.g, cdC.b) else cdText:SetTextColor(1, 1, 1) end
+            local cdC = cfg.cdFontColor or DEFAULT_CD_COLOR
+            cdText:SetTextColor(cdC.r, cdC.g, cdC.b)
             cdText:ClearAllPoints(); cdText:SetPoint("CENTER", f, "CENTER", cfg.countXOffset or 0, cfg.countYOffset or 0)
         end
     end
@@ -235,8 +240,8 @@ function AT:UpdateConfig()
             if f:IsShown() then 
                 E:UIFrameFadeIn(f, 0.2, f:GetAlpha(), 1) 
                 f.Count:SetText("59")
-                local bc = E.db.WishFlex.actionTimer.buffFontColor
-                if bc then f.Count:SetTextColor(bc.r, bc.g, bc.b) else f.Count:SetTextColor(0, 1, 0) end
+                local bc = E.db.WishFlex.actionTimer.buffFontColor or DEFAULT_BUFF_COLOR
+                f.Count:SetTextColor(bc.r, bc.g, bc.b)
                 f.Icon:SetDesaturated(false)
                 f.Icon:SetVertexColor(1, 1, 1)
             end 
@@ -264,14 +269,32 @@ function AT:UNIT_SPELLCAST_SUCCEEDED(_, unit, _, spellID)
     end
 end
 
+-- =======================================================
+-- 【性能优化】：通过 ID 直接 O(1) 查询，替代暴力的 40 循环光环遍历
+-- =======================================================
 local function CheckAuraValid(id, isItem)
-    local sName, sID = nil, id
+    local sID = id
     if isItem then
         local _, spID = C_Item.GetItemSpell(id)
-        if spID then sID = spID; local sInfo = C_Spell.GetSpellInfo(sID); if sInfo then sName = sInfo.name end end
-    else
-        local sInfo = C_Spell.GetSpellInfo(id); if sInfo then sName = sInfo.name end
+        if spID then sID = spID end
     end
+    
+    -- O(1) 极速查询
+    if sID and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        local aura = C_UnitAuras.GetPlayerAuraBySpellID(sID)
+        if aura then return true end
+    end
+    
+    -- Fallback 降级兼容查询
+    local sName
+    if sID then
+        local sInfo = C_Spell.GetSpellInfo(sID)
+        if sInfo then sName = sInfo.name end
+    else
+        local sInfo = C_Spell.GetSpellInfo(id)
+        if sInfo then sName = sInfo.name end
+    end
+    
     if not sName and not sID then return true end 
     
     local hasSecret = false
@@ -301,8 +324,8 @@ end
 
 function AT:Heartbeat()
     local t = GetTime(); local cfg = E.db.WishFlex.actionTimer
-    local bc = cfg.buffFontColor
-    local gc = cfg.glowColor
+    local bc = cfg.buffFontColor or DEFAULT_BUFF_COLOR
+    local gc = cfg.glowColor or DEFAULT_GLOW_COLOR
 
     for uniqueKey, data in pairs(self.trackedItems) do
         local f = self.Frames[uniqueKey]
@@ -326,14 +349,10 @@ function AT:Heartbeat()
                 f.Icon:SetDesaturated(false); f.Icon:SetVertexColor(1, 1, 1)
                 f.Count:SetText(FormatTime(buffTimeLeft))
                 
-                if bc then f.Count:SetTextColor(bc.r, bc.g, bc.b) else f.Count:SetTextColor(0, 1, 0) end
+                f.Count:SetTextColor(bc.r, bc.g, bc.b)
                 
                 if not f.isGlowActive and LCG then
-                    local gr = gc and gc.r or 0
-                    local gg = gc and gc.g or 1
-                    local gb = gc and gc.b or 0.5
-                    local ga = gc and gc.a or 1
-                    LCG.PixelGlow_Start(f, {gr, gg, gb, ga}, cfg.glowLines or 8, cfg.glowFreq or 0.25, cfg.glowLength or 10, cfg.glowThick or 2, 0, 0, false, "ActionTimerGlow")
+                    LCG.PixelGlow_Start(f, {gc.r, gc.g, gc.b, gc.a}, cfg.glowLines or 8, cfg.glowFreq or 0.25, cfg.glowLength or 10, cfg.glowThick or 2, 0, 0, false, "ActionTimerGlow")
                     f.isGlowActive = true
                 end
             elseif isCD then
@@ -350,6 +369,25 @@ function AT:Heartbeat()
             end
         end
     end
+end
+
+-- =======================================================
+-- 【智能内存管家】：脱战清理与深度回收
+-- =======================================================
+function AT:OnLeaveCombat()
+    local t = GetTime()
+    for _, f in pairs(self.Frames) do
+        if f.buffEndTime and f.buffEndTime < t then
+            f.buffEndTime = 0
+        end
+    end
+
+    -- 脱战 3 秒后强制释放内存
+    E:Delay(3, function()
+        if not InCombatLockdown() then
+            collectgarbage("collect") 
+        end
+    end)
 end
 
 local function InjectOptions()
@@ -381,8 +419,8 @@ local function InjectOptions()
                     countFontSize = {order=3,type="range",name="文本大小",min=8,max=40,step=1}, 
                     countXOffset = {order=4,type="range",name="时间文本 X 偏移",min=-50,max=50,step=1}, 
                     countYOffset = {order=5,type="range",name="时间文本 Y 偏移",min=-50,max=50,step=1},
-                    cdFontColor = { order=6, type="color", name="冷却时间颜色", get = function() local t = E.db.WishFlex.actionTimer.cdFontColor or {r=1,g=1,b=1} return t.r, t.g, t.b end, set = function(_, r, g, b) E.db.WishFlex.actionTimer.cdFontColor = {r=r,g=g,b=b}; AT:UpdateConfig() end }, 
-                    buffFontColor = { order=7, type="color", name="高亮颜色", get = function() local t = E.db.WishFlex.actionTimer.buffFontColor or {r=0,g=1,b=0} return t.r, t.g, t.b end, set = function(_, r, g, b) E.db.WishFlex.actionTimer.buffFontColor = {r=r,g=g,b=b}; AT:UpdateConfig() end }, 
+                    cdFontColor = { order=6, type="color", name="冷却时间颜色", get = function() local t = E.db.WishFlex.actionTimer.cdFontColor or DEFAULT_CD_COLOR return t.r, t.g, t.b end, set = function(_, r, g, b) E.db.WishFlex.actionTimer.cdFontColor = {r=r,g=g,b=b}; AT:UpdateConfig() end }, 
+                    buffFontColor = { order=7, type="color", name="高亮颜色", get = function() local t = E.db.WishFlex.actionTimer.buffFontColor or DEFAULT_BUFF_COLOR return t.r, t.g, t.b end, set = function(_, r, g, b) E.db.WishFlex.actionTimer.buffFontColor = {r=r,g=g,b=b}; AT:UpdateConfig() end }, 
                 }
             },
             glow = {
@@ -390,7 +428,7 @@ local function InjectOptions()
                 get = function(i) return E.db.WishFlex.actionTimer[i[#i]] end,
                 set = function(i, v) E.db.WishFlex.actionTimer[i[#i]] = v; AT:UpdateConfig() end,
                 args = {
-                    glowColor = { order = 1, type = "color", name = "线条颜色", hasAlpha = true, get = function() local t = E.db.WishFlex.actionTimer.glowColor or {r=0,g=1,b=0.5,a=1} return t.r, t.g, t.b, t.a end, set = function(_, r, g, b, a) E.db.WishFlex.actionTimer.glowColor = {r=r,g=g,b=b,a=a}; end }, 
+                    glowColor = { order = 1, type = "color", name = "线条颜色", hasAlpha = true, get = function() local t = E.db.WishFlex.actionTimer.glowColor or DEFAULT_GLOW_COLOR return t.r, t.g, t.b, t.a end, set = function(_, r, g, b, a) E.db.WishFlex.actionTimer.glowColor = {r=r,g=g,b=b,a=a}; end }, 
                     glowLines = { order = 2, type = "range", name = "线条数量", min = 1, max = 20, step = 1 },
                     glowFreq = { order = 3, type = "range", name = "滚动速度", min = 0.05, max = 2, step = 0.05 },
                     glowLength = { order = 4, type = "range", name = "线条长度", min = 1, max = 20, step = 1 },
@@ -436,12 +474,14 @@ function AT:Initialize()
     self:RegisterEvent("BAG_UPDATE_DELAYED", "UpdateTrackedItems")
     self:RegisterEvent("PLAYER_ENTERING_WORLD", "UpdateTrackedItems")
     self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+    self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnLeaveCombat") -- 挂载脱战清理与 GC 机制
     
     local tickerFrame = CreateFrame("Frame")
     local tickElapsed = 0
     tickerFrame:SetScript("OnUpdate", function(_, delta)
         tickElapsed = tickElapsed + delta
-        local interval = InCombatLockdown() and 0.1 or 0.5
+        -- 【性能优化】：脱战状态下降频到 1.0 秒扫描一次，战斗中 0.1 秒全速扫描
+        local interval = InCombatLockdown() and 0.1 or 1.0
         if AT.isPreviewing then interval = 0.1 end
         if tickElapsed >= interval then
             tickElapsed = 0
