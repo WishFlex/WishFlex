@@ -50,7 +50,8 @@ local Bar10Host = CreateFrame("Frame", "WishBar10Host", UIParent)
 local BarPetHost = CreateFrame("Frame", "WishBarPetHost", UIParent)
 BuffHost:Show(); DebuffHost:Show(); Bar10Host:Show(); BarPetHost:Show()
 
-local HiddenFrame = CreateFrame("Frame"); HiddenFrame:Hide()
+local HiddenFrame = CreateFrame("Frame")
+HiddenFrame:Hide()
 
 local FRAME_CATEGORIES = {
     ["ElvUF_Player.Health"] = { cat = "unitframe", isPlayerOnly = true },
@@ -60,7 +61,10 @@ local FRAME_CATEGORIES = {
     ["ElvUF_Target"] = { cat = "unitframe", isPlayerOnly = false },
     ["EssentialCooldownViewer"] = { cat = "cooldowns", isPlayerOnly = false },
     ["UtilityCooldownViewer"] = { cat = "cooldowns", isPlayerOnly = false },
-    ["BuffIconCooldownViewer"] = { cat = "cooldowns", isPlayerOnly = false },
+    
+    -- 已移除 BuffIconCooldownViewer 的拦截，移交给 CooldownCustom.lua 处理
+    -- ["BuffIconCooldownViewer"] = { cat = "cooldowns", isPlayerOnly = false }, 
+    
     ["WishFlex_CooldownRow2_Anchor"] = { cat = "cooldowns", isPlayerOnly = false },
     ["WishFlex_DefensiveViewer"] = { cat = "cooldowns", isPlayerOnly = false },
     ["WishFlex_ResurrectIcon"] = { cat = "cooldowns", isPlayerOnly = false, isResIcon = true },
@@ -75,7 +79,6 @@ local FRAME_CATEGORIES = {
     ["ElvUI_BarPet"] = { cat = "actionbar", isSpecialHost = "BarPetHost" }
 }
 
--- 【修复核心】：延迟加载型安全缓存，只要没拿到真实的 Frame，就一直允许重试查询，不再将 nil 存为 false
 local FrameCache = {}
 local function GetCachedFrame(name)
     if FrameCache[name] then return FrameCache[name] end
@@ -125,15 +128,37 @@ end
 
 local function IsPlayerFlying() return type(IsFlying) == "function" and IsFlying() end
 
+-- 替换后的核心小地图隐藏逻辑
 function SH:UpdateMinimap(show)
-    local cluster = _G.MinimapCluster
-    if not cluster then return end
     local inCombat = InCombatLockdown()
-    if show or inCombat then
-        if cluster:GetParent() ~= UIParent then cluster:SetParent(UIParent) end
-        cluster:SetAlpha(1)
-    elseif not inCombat then
-        if cluster:GetParent() ~= HiddenFrame then cluster:SetParent(HiddenFrame) end
+    local targetAlpha = show and 1 or 0
+    
+    -- 核心修复：连带小地图相关的所有底层面板、按钮框体、原生框架一网打尽
+    local frames = {
+        _G.MinimapCluster,
+        _G.Minimap,
+        _G.MinimapBackdrop,
+        _G.MinimapPanel,
+        _G.MMHolder,
+    }
+    
+    for _, f in ipairs(frames) do
+        if f then
+            UIFrameFadeRemoveFrame(f)
+            if f:GetAlpha() ~= targetAlpha then f:SetAlpha(targetAlpha) end
+            
+            if not inCombat then
+                -- 脱战时：直接使用强力的 Hide 砍掉父层渲染，完美隐去所有刁钻插件按钮
+                if targetAlpha == 0 then
+                    if f:IsShown() then f:Hide() end
+                else
+                    if not f:IsShown() then f:Show() end
+                end
+            else
+                -- 战斗时：无法随意 Hide 被保护的小地图，如果是透明状态就禁用鼠标防止点到空气
+                if f.EnableMouse then f:EnableMouse(targetAlpha == 1) end
+            end
+        end
     end
 end
 
@@ -160,7 +185,12 @@ function SH:UpdateVisibility()
 
     if db.forceShow then shouldShowMinimap = true; shouldShowPlayerOnly = true; shouldShowOthers = true end
 
-    self:UpdateMinimap(db.filters.minimap and shouldShowMinimap or true)
+    -- 【修复核心】：避开 Lua 逻辑陷阱，确保隐藏选项真实生效
+    local finalMinimapShow = true
+    if db.filters.minimap then 
+        finalMinimapShow = shouldShowMinimap 
+    end
+    self:UpdateMinimap(finalMinimapShow)
 
     for name, info in pairs(FRAME_CATEGORIES) do
         local f = GetCachedFrame(name)

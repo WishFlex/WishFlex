@@ -16,10 +16,21 @@ P["WishFlex"] = P["WishFlex"] or { modules = {} }
 P["WishFlex"].modules.cooldownCustom = true
 P["WishFlex"].cdManager = {
     swipeColor = DEFAULT_SWIPE_COLOR, activeAuraColor = DEFAULT_ACTIVE_AURA_COLOR, reverseSwipe = true,
-    Utility = { width = 45, height = 30, iconGap = 2, growth = "CENTER", cdFontSize = 18, cdFontColor = DEFAULT_CD_COLOR, cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackXOffset = 12, stackYOffset = -12 },
+    
+    -- [新增] 全局发光设置 (针对重要技能)
+    glowEnable = true,
+    glowType = "pixel",
+    glowUseCustomColor = false,
+    glowColor = {r = 1, g = 1, b = 1, a = 1},
+    glowPixelLines = 8, glowPixelFrequency = 0.25, glowPixelLength = 0, glowPixelThickness = 2, glowPixelXOffset = 0, glowPixelYOffset = 0,
+    glowAutocastParticles = 4, glowAutocastFrequency = 0.2, glowAutocastScale = 1, glowAutocastXOffset = 0, glowAutocastYOffset = 0,
+    glowButtonFrequency = 0,
+    glowProcDuration = 1, glowProcXOffset = 0, glowProcYOffset = 0,
+
+    Utility = { attachToPlayer = false, attachX = 0, attachY = 1, width = 45, height = 30, iconGap = 2, growth = "CENTER", cdFontSize = 18, cdFontColor = DEFAULT_CD_COLOR, cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackXOffset = 12, stackYOffset = -12 },
     BuffBar = { width = 120, height = 30, iconGap = 2, growth = "DOWN", cdFontSize = 18, cdFontColor = DEFAULT_CD_COLOR, cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackXOffset = 12, stackYOffset = -12 },
     BuffIcon = { width = 45, height = 45, iconGap = 2, growth = "CENTER", cdFontSize = 18, cdFontColor = DEFAULT_CD_COLOR, cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackXOffset = 12, stackYOffset = -12 }, 
-    Essential = { enableCustomLayout = true, injectActionTimer = false, maxPerRow = 7, iconGap = 2, glowEnable = true, glowColor = {r = 1, g = 1, b = 1, a = 1}, glowLines = 8, glowFreq = 0.25, glowLength = 10, glowThick = 2,
+    Essential = { enableCustomLayout = true, injectActionTimer = false, maxPerRow = 7, iconGap = 2, 
         row1Width = 45, row1Height = 45, row1CdFontSize = 18, row1CdFontColor = DEFAULT_CD_COLOR, row1CdXOffset = 0, row1CdYOffset = 0, row1StackFontSize = 14, row1StackFontColor = DEFAULT_STACK_COLOR, row1StackXOffset = 12, row1StackYOffset = -12, 
         row2Width = 40, row2Height = 40, row2IconGap = 2, row2CdFontSize = 18, row2CdFontColor = DEFAULT_CD_COLOR, row2CdXOffset = 0, row2CdYOffset = 0, row2StackFontSize = 14, row2StackFontColor = DEFAULT_STACK_COLOR, row2StackXOffset = 12, row2StackYOffset = -12 },
     countFont = "Expressway", countFontOutline = "OUTLINE", countFontColor = DEFAULT_STACK_COLOR,
@@ -116,8 +127,8 @@ local function GetEssentialGroup(dbKey, tabName, order)
             row1StackText = { order = 4, type = "group", name = "第一行 层数文本", guiInline = true, args = { row1StackFontSize = {order=1,type="range",name="大小",min=4,max=40,step=1}, row1StackFontColor = {order=2,type="color",name="颜色",get=function() local t=E.db.WishFlex.cdManager.Essential.row1StackFontColor; return t and t.r or 1, t and t.g or 1, t and t.b or 1 end, set=function(_,r,g,b) E.db.WishFlex.cdManager.Essential.row1StackFontColor={r=r,g=g,b=b} end}, row1StackXOffset = {order=3,type="range",name="X偏移",min=-50,max=50,step=1}, row1StackYOffset = {order=4,type="range",name="Y偏移",min=-50,max=50,step=1} } },
             row2Size = { order = 5, type = "group", name = "第二行尺寸", guiInline = true, args = { row2Width = { order=1, type="range", name="宽度", min=10, max=100, step=1 }, row2Height = { order=2, type="range", name="高度", min=10, max=100, step=1 }, row2IconGap = { order=3, type="range", name="间距", min=0, max=20, step = 1 } } },
             row2CdText = { order = 6, type = "group", name = "第二行 冷却倒计时", guiInline = true, args = { row2CdFontSize = {order=1,type="range",name="大小",min=4,max=40,step=1}, row2CdFontColor = {order=2,type="color",name="颜色",get=function() local t=E.db.WishFlex.cdManager.Essential.row2CdFontColor; return t and t.r or 1, t and t.g or 0.82, t and t.b or 0 end, set=function(_,r,g,b) E.db.WishFlex.cdManager.Essential.row2CdFontColor={r=r,g=g,b=b} end}, row2CdXOffset = {order=3,type="range",name="X偏移",min=-50,max=50,step=1}, row2CdYOffset = {order=4,type="range",name="Y偏移",min=-50,max=50,step=1} } },
-            row2StackText = { order = 7, type = "group", name = "第二行 层数文本", guiInline = true, args = { row2StackFontSize = {order=1,type="range",name="大小",min=4,max=40,step=1}, row2StackFontColor = {order=2,type="color",name="颜色",get=function() local t=E.db.WishFlex.cdManager.Essential.row2StackFontColor; return t and t.r or 1, t and t.g or 1, t and t.b or 1 end, set=function(_,r,g,b) E.db.WishFlex.cdManager.Essential.row2StackFontColor={r=r,g=g,b=b} end}, row2StackXOffset = {order=3,type="range",name="X偏移",min=-50,max=50,step=1}, row2StackYOffset = {order=4,type="range",name="Y偏移",min=-50,max=50,step=1} } },
-            glowGrp1 = { order = 8, type = "group", name = "高亮图标", guiInline = true, args = { glowEnable = { order = 1, type = "toggle", name = "像素发光" }, glowColor = { order = 2, type = "color", name = "线条颜色", hasAlpha = true, get = function() local t = E.db.WishFlex.cdManager.Essential.glowColor or {r=1,g=1,b=1,a=1} return t.r, t.g, t.b, t.a end, set = function(_, r, g, b, a) E.db.WishFlex.cdManager.Essential.glowColor = {r=r,g=g,b=b,a=a}; mod:TriggerLayout() end }, glowLines = { order = 3, type = "range", name = "线条数", min = 1, max = 20, step = 1 }, glowFreq = { order = 4, type = "range", name = "速度", min = 0.05, max = 2, step = 0.05 }, glowThick = { order = 5, type = "range", name = "线条粗细", min = 1, max = 10, step = 1 } } }
+            row2StackText = { order = 7, type = "group", name = "第二行 层数文本", guiInline = true, args = { row2StackFontSize = {order=1,type="range",name="大小",min=4,max=40,step=1}, row2StackFontColor = {order=2,type="color",name="颜色",get=function() local t=E.db.WishFlex.cdManager.Essential.row2StackFontColor; return t and t.r or 1, t and t.g or 1, t and t.b or 1 end, set=function(_,r,g,b) E.db.WishFlex.cdManager.Essential.row2StackFontColor={r=r,g=g,b=b} end}, row2StackXOffset = {order=3,type="range",name="X偏移",min=-50,max=50,step=1}, row2StackYOffset = {order=4,type="range",name="Y偏移",min=-50,max=50,step=1} } }
+            -- 发光组(glowGrp1) 已移至 全局与外观
         }
     }
 end
@@ -150,11 +161,66 @@ local function InjectOptions()
             countFontOutline = { order = 3, type = "select", name = "字体描边", values = { ["NONE"] = "无", ["OUTLINE"] = "普通", ["THICKOUTLINE"] = "粗描边" }, get = function() return E.db.WishFlex.cdManager.countFontOutline end, set = function(_, v) E.db.WishFlex.cdManager.countFontOutline = v; mod:TriggerLayout() end }, 
             swipeColor = { order = 5, type = "color", name = "全局冷却遮罩颜色", hasAlpha = true, get = function() local t = E.db.WishFlex.cdManager.swipeColor or DEFAULT_SWIPE_COLOR return t.r, t.g, t.b, t.a end, set = function(_, r, g, b, a) E.db.WishFlex.cdManager.swipeColor = {r=r,g=g,b=b,a=a}; mod:TriggerLayout() end },
             activeAuraColor = { order = 6, type = "color", name = "BUFF激活遮罩颜色", hasAlpha = true, get = function() local t = E.db.WishFlex.cdManager.activeAuraColor or DEFAULT_ACTIVE_AURA_COLOR return t.r, t.g, t.b, t.a end, set = function(_, r, g, b, a) E.db.WishFlex.cdManager.activeAuraColor = {r=r,g=g,b=b,a=a}; mod:TriggerLayout() end },
-            reverseSwipe = { order = 7, type = "toggle", name = "反向遮罩(亮变黑)", get = function() return E.db.WishFlex.cdManager.reverseSwipe end, set = function(_, v) E.db.WishFlex.cdManager.reverseSwipe = v; mod:TriggerLayout() end }
+            reverseSwipe = { order = 7, type = "toggle", name = "反向遮罩(亮变黑)", get = function() return E.db.WishFlex.cdManager.reverseSwipe end, set = function(_, v) E.db.WishFlex.cdManager.reverseSwipe = v; mod:TriggerLayout() end },
+            
+            -- [新增] 移植整合的全局重要技能发光设置
+            glowGroup = {
+                order = 10, type = "group", name = "重要技能高亮发光设置", guiInline = true,
+                get = function(info) return E.db.WishFlex.cdManager[info[#info]] end,
+                set = function(info, v) E.db.WishFlex.cdManager[info[#info]] = v; mod:TriggerLayout() end,
+                args = {
+                    glowEnable = { order = 1, type = "toggle", name = "启用高亮发光" },
+                    glowType = { order = 2, type = "select", name = "发光类型", values = { pixel = "像素发光", autocast = "自动施法发光", button = "按钮发光", proc = "触发发光" } },
+                    glowUseCustomColor = { order = 3, type = "toggle", name = "使用自定义颜色" },
+                    glowColor = { order = 4, type = "color", name = "发光颜色", hasAlpha = true, 
+                        get = function() local t = E.db.WishFlex.cdManager.glowColor; return t and t.r or 1, t and t.g or 1, t and t.b or 1, t and t.a or 1 end, 
+                        set = function(_, r, g, b, a) E.db.WishFlex.cdManager.glowColor = {r=r,g=g,b=b,a=a}; mod:TriggerLayout() end,
+                        disabled = function() return not E.db.WishFlex.cdManager.glowUseCustomColor end 
+                    },
+                    -- 像素发光参数
+                    glowPixelLines = { order = 10, type = "range", name = "线条数", min = 1, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "pixel" end },
+                    glowPixelFrequency = { order = 11, type = "range", name = "频率", min = -2, max = 2, step = 0.05, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "pixel" end },
+                    glowPixelLength = { order = 12, type = "range", name = "长度(0为自动)", min = 0, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "pixel" end },
+                    glowPixelThickness = { order = 13, type = "range", name = "粗细", min = 1, max = 10, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "pixel" end },
+                    glowPixelXOffset = { order = 14, type = "range", name = "X轴偏移", min = -20, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "pixel" end },
+                    glowPixelYOffset = { order = 15, type = "range", name = "Y轴偏移", min = -20, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "pixel" end },
+                    -- 自动施法参数
+                    glowAutocastParticles = { order = 20, type = "range", name = "粒子数", min = 1, max = 16, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "autocast" end },
+                    glowAutocastFrequency = { order = 21, type = "range", name = "频率", min = -2, max = 2, step = 0.05, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "autocast" end },
+                    glowAutocastScale = { order = 22, type = "range", name = "缩放", min = 0.5, max = 3, step = 0.05, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "autocast" end },
+                    glowAutocastXOffset = { order = 23, type = "range", name = "X轴偏移", min = -20, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "autocast" end },
+                    glowAutocastYOffset = { order = 24, type = "range", name = "Y轴偏移", min = -20, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "autocast" end },
+                    -- 按钮发光参数
+                    glowButtonFrequency = { order = 30, type = "range", name = "频率(0为默认)", min = 0, max = 2, step = 0.05, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "button" end },
+                    -- 触发发光参数
+                    glowProcDuration = { order = 40, type = "range", name = "持续时间", min = 0.1, max = 5, step = 0.1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "proc" end },
+                    glowProcXOffset = { order = 41, type = "range", name = "X轴偏移", min = -20, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "proc" end },
+                    glowProcYOffset = { order = 42, type = "range", name = "Y轴偏移", min = -20, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "proc" end },
+                }
+            }
         } 
     }
     args.essential = GetEssentialGroup("Essential", "重要技能", 2)
+    
     args.utility = GetCDSubGroup("Utility", "效能技能", 4, false)
+    args.utility.args.layout.args.attachToPlayer = {
+        order = 3, type = "toggle", name = "吸附玩家头像(右上)", desc = "勾选后将完美对齐到玩家框体的外部边界，消灭缝隙。",
+        get = function() return E.db.WishFlex.cdManager.Utility.attachToPlayer end,
+        set = function(_, v) E.db.WishFlex.cdManager.Utility.attachToPlayer = v; mod:TriggerLayout() end
+    }
+    args.utility.args.layout.args.attachX = {
+        order = 4, type = "range", name = "吸附X偏移(像素)", min = -30, max = 30, step = 1, desc = "左右微调，目前使用了最精确的视觉边缘对齐，设为 0 即可齐平。",
+        get = function() return E.db.WishFlex.cdManager.Utility.attachX or 0 end,
+        set = function(_, v) E.db.WishFlex.cdManager.Utility.attachX = v; mod:TriggerLayout() end,
+        disabled = function() return not E.db.WishFlex.cdManager.Utility.attachToPlayer end
+    }
+    args.utility.args.layout.args.attachY = {
+        order = 5, type = "range", name = "吸附Y偏移(像素)", min = -30, max = 30, step = 1, desc = "上下微调间距。",
+        get = function() return E.db.WishFlex.cdManager.Utility.attachY or 1 end,
+        set = function(_, v) E.db.WishFlex.cdManager.Utility.attachY = v; mod:TriggerLayout() end,
+        disabled = function() return not E.db.WishFlex.cdManager.Utility.attachToPlayer end
+    }
+
     args.bufficon = GetCDSubGroup("BuffIcon", "增益图标", 5, false) 
     args.buffbar = GetCDSubGroup("BuffBar", "增益条", 6, true) 
 end
@@ -373,7 +439,11 @@ function mod:UpdateAllLayouts()
     local db = E.db.WishFlex.cdManager
     local function LayoutViewer(viewer, cfg, cat)
         if not viewer or not viewer.itemFramePool then return end
-        WeldToMover(viewer)
+        
+        local attachToPlayer = (cat == "Utility" and cfg.attachToPlayer)
+        if not attachToPlayer then
+            WeldToMover(viewer)
+        end
         
         table.wipe(cachedFrames)
         local count = 0
@@ -387,21 +457,41 @@ function mod:UpdateAllLayouts()
         if count == 0 then return end
         
         table.sort(cachedFrames, SortByLayoutIndex)
-        local w, h, gap, growth = cfg.width or 45, cfg.height or 30, cfg.iconGap or 2, cfg.growth or "CENTER"
+        local w, h, gap = cfg.width or 45, cfg.height or 30, cfg.iconGap or 2
+        local growth = attachToPlayer and "LEFT" or (cfg.growth or "CENTER") 
         local totalW = (count * w) + math.max(0, (count - 1) * gap)
         viewer:SetSize(math.max(w, totalW), h); if viewer.mover then viewer.mover:SetSize(math.max(w, totalW), h) end
+        
+        if attachToPlayer and _G.ElvUF_Player then
+            viewer:ClearAllPoints()
+            local ax = cfg.attachX or 0
+            local ay = cfg.attachY or 1
+            local anchorFrame = _G.ElvUF_Player.backdrop or _G.ElvUF_Player
+            viewer:Point("BOTTOMRIGHT", anchorFrame, "TOPRIGHT", ax, ay)
+        end
         
         for i = 1, count do
             local f = cachedFrames[i]
             f:ClearAllPoints(); 
-            local x = -(totalW / 2) + (w / 2) + (i - 1) * (w + gap)
-            if growth == "CENTER" then f:SetPoint("CENTER", viewer, "CENTER", x, 0)
-            elseif growth == "LEFT" then f:SetPoint("CENTER", viewer, "CENTER", -x, 0)
-            elseif growth == "RIGHT" then f:SetPoint("CENTER", viewer, "CENTER", x, 0) end
+            
+            if attachToPlayer then
+                if i == 1 then
+                    f:Point("RIGHT", viewer, "RIGHT", 0, 0)
+                else
+                    local prev = cachedFrames[i-1]
+                    f:Point("RIGHT", prev, "LEFT", -gap, 0)
+                end
+            else
+                local x = -(totalW / 2) + (w / 2) + (i - 1) * (w + gap)
+                if growth == "CENTER" then f:SetPoint("CENTER", viewer, "CENTER", x, 0)
+                elseif growth == "LEFT" then f:SetPoint("CENTER", viewer, "CENTER", -x, 0)
+                elseif growth == "RIGHT" then f:SetPoint("CENTER", viewer, "CENTER", x, 0) end
+            end
             
             f:SetSize(w, h); if f.Icon then mod.ApplyTexCoord(f.Icon.Icon or f.Icon, w, h) end
         end
     end
+    
     LayoutViewer(_G.UtilityCooldownViewer, db.Utility, "Utility")
 
     local eViewer = _G.EssentialCooldownViewer
@@ -531,23 +621,49 @@ function mod:Initialize()
     SafeMover(_G.BuffIconCooldownViewer, "WishFlexBuffIconMover", "WishFlex: 增益图标", {"CENTER", E.UIParent, "CENTER", 0, 150})
     SafeMover(_G.BuffBarCooldownViewer, "WishFlexBuffBarMover", "WishFlex: 增益条", {"CENTER", E.UIParent, "CENTER", 0, 100})
 
+    -- [核心更新] 拦截并应用四种高级发光模式
     local isHookingGlow = false
     if LCG then
+        local function ApplyCustomGlow(frame, drawLayer)
+            local cfg = E.db.WishFlex.cdManager
+            if not cfg.glowEnable then return end
+            
+            local c = cfg.glowColor or {r=1, g=1, b=1, a=1}
+            local colorArr = cfg.glowUseCustomColor and {c.r, c.g, c.b, c.a} or nil
+            local t = cfg.glowType or "pixel"
+            
+            if t == "pixel" then
+                local len = cfg.glowPixelLength; if len == 0 then len = nil end
+                LCG.PixelGlow_Start(frame, colorArr, cfg.glowPixelLines, cfg.glowPixelFrequency, len, cfg.glowPixelThickness, cfg.glowPixelXOffset, cfg.glowPixelYOffset, false, "WishEssentialGlow", drawLayer)
+            elseif t == "autocast" then
+                LCG.AutoCastGlow_Start(frame, colorArr, cfg.glowAutocastParticles, cfg.glowAutocastFrequency, cfg.glowAutocastScale, cfg.glowAutocastXOffset, cfg.glowAutocastYOffset, "WishEssentialGlow", drawLayer)
+            elseif t == "button" then
+                local freq = cfg.glowButtonFrequency; if freq == 0 then freq = nil end
+                LCG.ButtonGlow_Start(frame, colorArr, freq)
+            elseif t == "proc" then
+                LCG.ProcGlow_Start(frame, {color = colorArr, duration = cfg.glowProcDuration, xOffset = cfg.glowProcXOffset, yOffset = cfg.glowProcYOffset, key = "WishEssentialGlow", frameLevel = drawLayer})
+            end
+        end
+
         hooksecurefunc(LCG, "PixelGlow_Start", function(frame, color, lines, frequency, length, thickness, xOffset, yOffset, drawLayer, key)
             if isHookingGlow or not frame or key == "WishEssentialGlow" then return end
             if GetKeyFromFrame(frame) == "Essential" then
-                isHookingGlow = true; LCG.PixelGlow_Stop(frame, key); isHookingGlow = false
-                local cfg = E.db.WishFlex.cdManager.Essential
-                if cfg and cfg.glowEnable then
-                    local c = cfg.glowColor or {r=1, g=1, b=1, a=1}
-                    LCG.PixelGlow_Start(frame, {c.r, c.g, c.b, c.a}, cfg.glowLines or 8, cfg.glowFreq or 0.25, cfg.glowLength or 10, cfg.glowThick or 2, xOffset, yOffset, drawLayer, "WishEssentialGlow")
-                end
+                isHookingGlow = true
+                LCG.PixelGlow_Stop(frame, key)
+                ApplyCustomGlow(frame, drawLayer)
+                isHookingGlow = false
             end
         end)
+
         hooksecurefunc(LCG, "PixelGlow_Stop", function(frame, key)
             if isHookingGlow or key == "WishEssentialGlow" or not frame then return end
             if GetKeyFromFrame(frame) == "Essential" then
-                isHookingGlow = true; LCG.PixelGlow_Stop(frame, "WishEssentialGlow"); isHookingGlow = false
+                isHookingGlow = true
+                LCG.PixelGlow_Stop(frame, "WishEssentialGlow")
+                LCG.AutoCastGlow_Stop(frame, "WishEssentialGlow")
+                LCG.ButtonGlow_Stop(frame)
+                LCG.ProcGlow_Stop(frame, "WishEssentialGlow")
+                isHookingGlow = false
             end
         end)
     end
@@ -566,32 +682,22 @@ function mod:Initialize()
         end
     end
 
-    -- =========================================================================
-    -- 【核心优化引擎】：同帧瞬发防抖拦截 (Same-Frame Debounce)
-    -- =========================================================================
-    -- 原理：脱战时不占用任何 CPU，但一旦玩家 Buff 变动，在同一渲染帧内立刻接管。
-    -- 无论一瞬间触发多少次 UNIT_AURA，依靠帧锁保证只运算1次，根除 FPS 掉帧。
-    local frameLimitPending = false
-    local frameLimiter = CreateFrame("Frame")
-    frameLimiter:SetScript("OnUpdate", function()
-        frameLimitPending = false 
-    end)
-
-    function mod:UNIT_AURA(event, unit)
-        if unit == "player" then
-            if not frameLimitPending then
-                frameLimitPending = true
-                mod:TriggerLayout() -- 同帧立即强杀暴雪的默认排版，彻底消灭视觉延迟
-            end
+    local function SetBuffIconAlpha(alpha)
+        if _G.BuffIconCooldownViewer then
+            _G.BuffIconCooldownViewer:SetAlpha(alpha)
         end
     end
-    self:RegisterEvent("UNIT_AURA")
-    -- =========================================================================
 
-    -- 战斗状态智能管理：进战开启狂暴兜底镇压（处理饰品CD等无光环更新的组件），脱战 0 占用休眠
     function mod:PLAYER_REGEN_DISABLED()
+        SetBuffIconAlpha(0)
+        
         if self.combatLayoutTicker then self.combatLayoutTicker:Cancel() end
         self.combatLayoutTicker = C_Timer.NewTicker(0.05, function() mod:TriggerLayout() end)
+        
+        if self.alphaTimer then self.alphaTimer:Cancel() end
+        self.alphaTimer = C_Timer.NewTimer(0, function()
+            SetBuffIconAlpha(1)
+        end)
     end
 
     function mod:PLAYER_REGEN_ENABLED()
@@ -599,13 +705,25 @@ function mod:Initialize()
             self.combatLayoutTicker:Cancel()
             self.combatLayoutTicker = nil
         end
+        
+        if self.alphaTimer then
+            self.alphaTimer:Cancel()
+            self.alphaTimer = nil
+        end
+        
+        SetBuffIconAlpha(0) 
+        
         mod:TriggerLayout()
     end
 
     self:RegisterEvent("PLAYER_REGEN_DISABLED")
     self:RegisterEvent("PLAYER_REGEN_ENABLED")
     
-    if InCombatLockdown() then self:PLAYER_REGEN_DISABLED() end
+    if InCombatLockdown() then 
+        self:PLAYER_REGEN_DISABLED() 
+    else
+        SetBuffIconAlpha(0)
+    end
 
     self:TriggerLayout()
 end

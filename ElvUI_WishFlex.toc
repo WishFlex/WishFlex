@@ -17,11 +17,12 @@ Modules\StripeSkin.lua
 Modules\LustMonitor.lua
 Modules\Silvermoon.lua
 Modules\CooldownCustom.lua
-Modules\DefensiveCooldowns.lua
 Modules\CombatAlert.lua
 Modules\ClassResource.lua
 Modules\ActionTimer.lua
+Modules\CooldownTracker.lua
 Modules\WishTargetAlert.lua
+Modules\AuraGlow.lua
 Modules\WorldMarker.lua
 Modules\SmartHide.lua
 Modules\Glow.lua

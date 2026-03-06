@@ -9,7 +9,6 @@ local hasHealerSpec = (playerClass == "PALADIN" or playerClass == "PRIEST" or pl
 local defaults = {
     enable = true, alignWithCD = false, widthOffset = 2, width = 250, yOffset = 4, texture = "WishFlex-g1", specConfigs = {},
     power = { enable = true, height = 14, textFormat = "BOTH", font = "Expressway", fontSize = 12, outline = "OUTLINE", color = {r=1, g=1, b=1}, xOffset = 0, yOffset = 0, useCustomColor = false, customColor = {r=0, g=0.5, b=1} },
-    -- 针对主资源条引入职业独立的颜色表，杜绝切职业颜色覆盖的问题
     class = { enable = true, height = 12, textFormat = "ABSOLUTE", font = "Expressway", fontSize = 12, outline = "OUTLINE", color = {r=1, g=1, b=1}, xOffset = 0, yOffset = 0, useCustomColor = false, customColor = {r=1, g=0.96, b=0.41}, useCustomColors = {}, customColors = {} },
     tertiary = { enable = true, height = 10, textFormat = "ABSOLUTE", font = "Expressway", fontSize = 12, outline = "OUTLINE", color = {r=1, g=1, b=1}, xOffset = 0, yOffset = 0, useCustomColor = false, customColor = {r=0.4, g=0.8, b=1} },
     mana = { enable = true, height = 10, textFormat = "PERCENT", font = "Expressway", fontSize = 12, outline = "OUTLINE", color = {r=1, g=1, b=1}, xOffset = 0, yOffset = 0, useCustomColor = false, customColor = {r=0, g=0.5, b=1}, barXOffset = 0, barYOffset = 0 },
@@ -18,6 +17,11 @@ local defaults = {
 local DEFAULT_COLOR = {r=1, g=1, b=1}
 local POWER_COLORS = { [0]={r=0,g=0.5,b=1}, [1]={r=1,g=0,b=0}, [2]={r=1,g=0.5,b=0.25}, [3]={r=1,g=1,b=0}, [4]={r=1,g=0.96,b=0.41}, [5]={r=0.8,g=0.1,b=0.2}, [7]={r=0.5,g=0.32,b=0.55}, [8]={r=0.3,g=0.52,b=0.9}, [9]={r=0.95,g=0.9,b=0.6}, [11]={r=0,g=0.5,b=1}, [12]={r=0.71,g=1,b=0.92}, [13]={r=0.4,g=0,b=0.8}, [16]={r=0.1,g=0.1,b=0.98}, [17]={r=0.79,g=0.26,b=0.99}, [18]={r=1,g=0.61,b=0}, [19]={r=0.4,g=0.8,b=1} }
 local TERTIARY_COLORS = { shaman_apps={r=0,g=0.5,b=1}, hunter_apps={r=0.6,g=0.8,b=0.2}, warrior_apps={r=0.8,g=0.1,b=0.1}, stagger_green={r=0,g=1,b=0.5}, stagger_yellow={r=1,g=1,b=0}, stagger_red={r=1,g=0,b=0}, evoker_dur={r=0.8,g=0.6,b=0.1}, dh_vengeance={r=0.6,g=0.2,b=0.8}, mage_icicles={r=0.4,g=0.8,b=1}, mage_charges={r=1,g=0.5,b=0} }
+
+-- 【核心探测器】：识别当前数值是否被暴雪底层保护
+local function IsSecret(v)
+    return type(v) == "number" and issecretvalue and issecretvalue(v)
+end
 
 local function DeepMerge(target, source)
     for k, v in pairs(source) do
@@ -142,15 +146,20 @@ local function GetTertiaryResourceData()
     if playerClass == "MONK" and spec == 268 then
         local stagger = UnitStagger("player") or 0
         local maxHealth = UnitHealthMax("player") or 1
-        if maxHealth <= 0 then maxHealth = 1 end
         
         local show = false
         local color = TERTIARY_COLORS.stagger_green
-        if stagger > 0 then
+        
+        -- 【防御机制】：如果是加密数字，不允许进行除法计算，直接显示
+        if IsSecret(stagger) or IsSecret(maxHealth) then
             show = true
-            local p = stagger / maxHealth
-            if p > 0.6 then color = TERTIARY_COLORS.stagger_red
-            elseif p > 0.3 then color = TERTIARY_COLORS.stagger_yellow end
+        else
+            if stagger > 0 and maxHealth > 0 then
+                show = true
+                local p = stagger / maxHealth
+                if p > 0.6 then color = TERTIARY_COLORS.stagger_red
+                elseif p > 0.3 then color = TERTIARY_COLORS.stagger_yellow end
+            end
         end
         return stagger, maxHealth, color, false, 1, show
         
@@ -160,10 +169,14 @@ local function GetTertiaryResourceData()
             local aura = C_UnitAuras.GetPlayerAuraBySpellID(395296)
             if aura and aura.expirationTime then
                 remain = aura.expirationTime - GetTime()
-                if remain > 0 then
+                if IsSecret(remain) then
                     show = true
-                    dur = aura.duration > 0 and aura.duration or 10
-                else remain = 0 end
+                else
+                    if remain > 0 then
+                        show = true
+                        dur = aura.duration > 0 and aura.duration or 10
+                    else remain = 0 end
+                end
             end
         end
         return remain, dur, TERTIARY_COLORS.evoker_dur, true, 1, show
@@ -171,7 +184,8 @@ local function GetTertiaryResourceData()
     elseif playerClass == "SHAMAN" and spec == 262 then
         local mana = UnitPower("player", 0)
         local maxMana = UnitPowerMax("player", 0)
-        return mana, maxMana, GetPowerColor(0), false, 1, (maxMana > 0)
+        local show = IsSecret(maxMana) or (maxMana > 0)
+        return mana, maxMana, GetPowerColor(0), false, 1, show
         
     elseif playerClass == "DEMONHUNTER" then
         if spec == 581 then 
@@ -455,9 +469,16 @@ end
 
 function CR:UpdateDividers(bar, maxVal)
     bar.dividers = bar.dividers or {}
-    local numMax = tonumber(maxVal) or 1
-    if numMax <= 0 then numMax = 1 end
-    if numMax > 20 then numMax = 20 end 
+    
+    local numMax
+    -- 【防御机制】：加密数值不能进行判断处理，直接只展示 1 格
+    if IsSecret(maxVal) then
+        numMax = 1
+    else
+        numMax = tonumber(maxVal) or 1
+        if numMax <= 0 then numMax = 1 end
+        if numMax > 20 then numMax = 20 end 
+    end
 
     local width = bar:GetWidth() or 250
     if bar._lastDividerMax == numMax and bar._lastDividerWidth == width then return end
@@ -482,7 +503,7 @@ function CR:UpdateDividers(bar, maxVal)
     for i = numDividers + 1, #bar.dividers do if bar.dividers[i] then bar.dividers[i]:Hide() end end
 end
 
--- 彻底移除了 pcall 的内联安全格式化，杜绝了每秒几十次的闭包创建
+-- 【终极安全格式化】：仅对真正的数字做数学运算，如果遇到暴雪加密数字，直接无脑转文本，防止崩溃。
 local function FormatSafeText(bar, textCfg, current, maxVal, isTime, pType, showText)
     if not bar.text or textCfg.textFormat == "NONE" or not showText then 
         if bar.text and bar.text:IsShown() then bar.text:Hide() end
@@ -513,46 +534,67 @@ local function FormatSafeText(bar, textCfg, current, maxVal, isTime, pType, show
     end
     
     local newText = ""
-    local cVal = current or 0
-    local mVal = maxVal or 1
+
+    local function SafeFormatNum(v)
+        if v == nil then return "0" end
+        if IsSecret(v) then return tostring(v) end -- 避开污染，直接转字！
+        
+        local num = tonumber(v) or 0
+        if num >= 1e6 then return string.format("%.1fm", num / 1e6)
+        elseif num >= 1e4 then return string.format("%.1fk", num / 1e3)
+        else return string.format("%.0f", num) end
+    end
 
     if isTime then
-        newText = string.format("%.1f", cVal)
+        if IsSecret(current) then 
+            newText = tostring(current)
+        else 
+            newText = string.format("%.1f", tonumber(current) or 0) 
+        end
     elseif pType == 0 then
         local scale = (_G.CurveConstants and _G.CurveConstants.ScaleTo100) or 100
-        local perc = UnitPowerPercent("player", pType, true, scale) or 0
-        newText = string.format("%.0f", perc)
+        local perc = UnitPowerPercent("player", pType, true, scale)
+        if IsSecret(perc) then 
+            newText = tostring(perc)
+        else 
+            newText = string.format("%.0f", tonumber(perc) or 0) 
+        end
     elseif textCfg.textFormat == "PERCENT" then
         if pType then
-            local scale = (_G.CurveConstants and _G.CurveConstants.ScaleTo100) or 100
-            local perc = UnitPowerPercent("player", pType, true, scale) or 0
-            newText = string.format("%.0f", perc)
+            local perc = UnitPowerPercent("player", pType, true)
+            if IsSecret(perc) then 
+                newText = tostring(perc)
+            else 
+                newText = string.format("%.0f", tonumber(perc) or 0) 
+            end
         else
-            local p = 0
-            if mVal > 0 then p = (cVal / mVal) * 100 end
-            newText = string.format("%.0f", p)
+            if IsSecret(current) or IsSecret(maxVal) then
+                -- 加密数值不能进行数学相除！降级显示为当前数值。
+                newText = tostring(current)
+            else
+                local cVal = tonumber(current) or 0
+                local mVal = tonumber(maxVal) or 1
+                if mVal <= 0 then mVal = 1 end
+                newText = string.format("%.0f", (cVal / mVal) * 100)
+            end
         end
-    elseif textCfg.textFormat == "ABSOLUTE" then
-        newText = (type(AbbreviateNumbers) == "function") and AbbreviateNumbers(cVal) or tostring(cVal)
+    elseif textCfg.textFormat == "BOTH" then
+        newText = SafeFormatNum(current) .. " / " .. SafeFormatNum(maxVal)
     else
-        local curStr = (type(AbbreviateNumbers) == "function") and AbbreviateNumbers(cVal) or tostring(cVal)
-        local maxStr = (type(AbbreviateNumbers) == "function") and AbbreviateNumbers(mVal) or tostring(mVal)
-        newText = curStr .. " / " .. maxStr
+        newText = SafeFormatNum(current)
     end
 
-    if bar._lastText ~= newText then
-        bar._lastText = newText
-        bar.text:SetText(newText)
-    end
+    -- 【移除了所有文本缓存验证】：因为加密字符串的比较 (A ~= B) 会直接引爆报错。所以我们直接无脑渲染即可。
+    bar.text:SetText(newText)
 end
 
 function CR:UpdateLayout()
-    self:WakeUp() -- 任何布局变动直接唤醒渲染循环
+    self:WakeUp()
     if not self.anchor then return end
     local db = GetDB()
     local currentContextID = GetCurrentContextID()
     local specCfg = GetCurrentSpecConfig(currentContextID)
-    self.cachedSpecCfg = specCfg -- 全局缓存配置项
+    self.cachedSpecCfg = specCfg
 
     local tex = LSM:Fetch("statusbar", db.texture) or E.media.normTex or [[Interface\TargetingFrame\UI-StatusBar]]
     local targetWidth = GetTargetWidth()
@@ -579,13 +621,19 @@ function CR:UpdateLayout()
 
     local pType = UnitPowerType("player")
     local pMax = UnitPowerMax("player", pType)
-    self.showPower = db.power.enable and pMax > 0 and specCfg.showPower
+    -- 【防御机制】：如果是加密值，就不比较大小直接判定为可用。否则按数字比对。
+    local validMax = IsSecret(pMax) or ((tonumber(pMax) or 0) > 0)
+    self.showPower = db.power.enable and validMax and specCfg.showPower
+    
     local _, _, _, hasClassDef = GetClassResourceData()
     self.showClass = db.class.enable and hasClassDef and specCfg.showClass
+    
     local _, _, _, _, _, tShouldShow = GetTertiaryResourceData()
     self.showTertiary = db.tertiary.enable and tShouldShow and specCfg.showTertiary
+    
     local manaMax = UnitPowerMax("player", 0)
-    self.showMana = hasHealerSpec and db.mana.enable and manaMax > 0 and specCfg.showMana
+    local validManaMax = IsSecret(manaMax) or ((tonumber(manaMax) or 0) > 0)
+    self.showMana = hasHealerSpec and db.mana.enable and validManaMax and specCfg.showMana
 
     AnchorBar(self.powerBar, db.power.height, self.showPower)
     AnchorBar(self.classBar, db.class.height, self.showClass)
@@ -615,31 +663,48 @@ function CR:DynamicTick()
     local specCfg = self.cachedSpecCfg or GetCurrentSpecConfig(GetCurrentContextID())
     self.hasActiveTimer = false
 
+    -- 【终极核心】：动画值不需要洗白可以直接喂，文本排版则通过 FormatSafeText 中自带的防爆破机制处理
     if self.showPower then
         local pType = UnitPowerType("player")
-        local pMax = UnitPowerMax("player", pType)
-        if pMax <= 0 then pMax = 1 end
-        local pCurr = UnitPower("player", pType)
+        local rawMax = UnitPowerMax("player", pType)
+        local rawCurr = UnitPower("player", pType)
+        
+        -- 针对未加密的正常数据做兜底保护
+        if not IsSecret(rawMax) then
+            if type(rawMax) ~= "number" or rawMax <= 0 then rawMax = 1 end
+        end
+        if type(rawCurr) ~= "number" then rawCurr = 0 end
+        
         local pColor = GetSafeColor(db.power, GetPowerColor(pType), false)
-        self.powerBar.statusBar:SetMinMaxValues(0, pMax)
-        self.powerBar.statusBar:SetValue(pCurr)
+        
+        -- 正常数值与加密数值原生支持输入 StatusBar
+        self.powerBar.statusBar:SetMinMaxValues(0, rawMax)
+        self.powerBar.statusBar:SetValue(rawCurr)
         self.powerBar.statusBar:SetStatusBarColor(pColor.r, pColor.g, pColor.b)
         self:UpdateDividers(self.powerBar, 1)
-        FormatSafeText(self.powerBar, db.power, pCurr, pMax, false, pType, specCfg.textPower)
+        
+        -- 排版引擎自动分辨是否安全
+        FormatSafeText(self.powerBar, db.power, rawCurr, rawMax, false, pType, specCfg.textPower)
     end
 
     if self.showClass then
-        local cCurr, cMax, cDefColor = GetClassResourceData()
-        if cMax <= 0 then cMax = 1 end
+        local rawCurr, rawMax, cDefColor = GetClassResourceData()
+        
+        if not IsSecret(rawMax) then
+            if type(rawMax) ~= "number" or rawMax <= 0 then rawMax = 1 end
+        end
+        if type(rawCurr) ~= "number" then rawCurr = 0 end
+        
         local cColor = GetSafeColor(db.class, cDefColor, true)
-        self.classBar.statusBar:SetMinMaxValues(0, cMax)
-        self.classBar.statusBar:SetValue(cCurr)
+        
+        self.classBar.statusBar:SetMinMaxValues(0, rawMax)
+        self.classBar.statusBar:SetValue(rawCurr)
         self.classBar.statusBar:SetStatusBarColor(cColor.r, cColor.g, cColor.b)
-        self:UpdateDividers(self.classBar, cMax)
-        FormatSafeText(self.classBar, db.class, cCurr, cMax, false, nil, specCfg.textClass)
+        self:UpdateDividers(self.classBar, rawMax)
+        FormatSafeText(self.classBar, db.class, rawCurr, rawMax, false, nil, specCfg.textClass)
     end
     
-    local tCurr, tMax, tDefColor, tIsTime, tSegments, tShouldShow = GetTertiaryResourceData()
+    local rawTCurr, rawTMax, tDefColor, tIsTime, tSegments, tShouldShow = GetTertiaryResourceData()
     local newShowTertiary = db.tertiary.enable and tShouldShow and specCfg.showTertiary
     if self.showTertiary ~= newShowTertiary then 
         self.showTertiary = newShowTertiary
@@ -648,27 +713,38 @@ function CR:DynamicTick()
     end
     
     if self.showTertiary then
+        if not IsSecret(rawTMax) then
+            if type(rawTMax) ~= "number" or rawTMax <= 0 then rawTMax = 1 end
+        end
+        if type(rawTCurr) ~= "number" then rawTCurr = 0 end
+        
         if tIsTime and tShouldShow then self.hasActiveTimer = true end
-        if tMax <= 0 then tMax = 1 end
         local tColor = GetSafeColor(db.tertiary, tDefColor, false)
-        self.tertiaryBar.statusBar:SetMinMaxValues(0, tMax)
-        self.tertiaryBar.statusBar:SetValue(tCurr)
+        
+        self.tertiaryBar.statusBar:SetMinMaxValues(0, rawTMax)
+        self.tertiaryBar.statusBar:SetValue(rawTCurr)
         self.tertiaryBar.statusBar:SetStatusBarColor(tColor.r, tColor.g, tColor.b)
         self:UpdateDividers(self.tertiaryBar, tSegments)
         local isEleMana = (playerClass == "SHAMAN" and GetSpecializationInfo(GetSpecialization() or 1) == 262)
-        FormatSafeText(self.tertiaryBar, db.tertiary, tCurr, tMax, tIsTime, isEleMana and 0 or nil, specCfg.textTertiary)
+        FormatSafeText(self.tertiaryBar, db.tertiary, rawTCurr, rawTMax, tIsTime, isEleMana and 0 or nil, specCfg.textTertiary)
     end
     
     if self.showMana then
-        local mMax = UnitPowerMax("player", 0)
-        if mMax <= 0 then mMax = 1 end
-        local mCurr = UnitPower("player", 0)
+        local rawMax = UnitPowerMax("player", 0)
+        local rawCurr = UnitPower("player", 0)
+        
+        if not IsSecret(rawMax) then
+            if type(rawMax) ~= "number" or rawMax <= 0 then rawMax = 1 end
+        end
+        if type(rawCurr) ~= "number" then rawCurr = 0 end
+        
         local mColor = GetSafeColor(db.mana, POWER_COLORS[0], false)
-        self.manaBar.statusBar:SetMinMaxValues(0, mMax)
-        self.manaBar.statusBar:SetValue(mCurr)
+        
+        self.manaBar.statusBar:SetMinMaxValues(0, rawMax)
+        self.manaBar.statusBar:SetValue(rawCurr)
         self.manaBar.statusBar:SetStatusBarColor(mColor.r, mColor.g, mColor.b)
         self:UpdateDividers(self.manaBar, 1)
-        FormatSafeText(self.manaBar, db.mana, mCurr, mMax, false, 0, specCfg.textMana)
+        FormatSafeText(self.manaBar, db.mana, rawCurr, rawMax, false, 0, specCfg.textMana)
     end
 end
 

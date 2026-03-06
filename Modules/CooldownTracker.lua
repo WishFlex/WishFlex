@@ -123,7 +123,7 @@ local function SafeKillRedBorder(frame)
 end
 
 -- =====================================================================
--- 4. 极简变灰引擎
+-- 4. 回退至原版的安全变灰引擎
 -- =====================================================================
 local function ApplyWishVisuals(frame)
     if not frame or not frame.Icon then return end
@@ -140,10 +140,23 @@ local function ApplyWishVisuals(frame)
     local inDesat = Tracker.desatSpellSet[spellID] and E.db.WishFlex.cdTracker.enableDesat
     local inRes = Tracker.resourceSpellSet[spellID] and E.db.WishFlex.cdTracker.enableResource
 
-    if not inDesat and not inRes then return end
+    if not inDesat and not inRes then
+        -- 安全恢复状态防污染
+        if data.wishModified then
+            data.isUpdating = true
+            if frame.Cooldown then frame.Cooldown:SetDrawSwipe(true) end
+            if frame.Icon.SetDesaturation then frame.Icon:SetDesaturation(0) else frame.Icon:SetDesaturated(false) end
+            frame.Icon:SetVertexColor(1, 1, 1)
+            data.wishModified = false
+            data.isUpdating = false
+        end
+        return 
+    end
 
+    data.wishModified = true
     local isActive = true
     
+    -- 完全使用你原版的逻辑读取原生框架的颜色判定，杜绝 Taint
     if inDesat then
         local swipe = frame.cooldownSwipeColor
         if swipe and type(swipe) == "table" and swipe.GetRGBA then
@@ -151,10 +164,12 @@ local function ApplyWishVisuals(frame)
             if ok and r and not issecretvalue(r) then 
                 isActive = (r ~= 0) 
             else 
-                isActive = false 
+                -- 修正：原版这里是 false，导致缺少颜色数据的法术（幽冥收割）一灰到底，现改为默认 true 放行
+                isActive = true 
             end
         else
-            isActive = false
+            -- 修正：同上，找不到 swipe 属性时默认不褪色
+            isActive = true
         end
     end
 
@@ -165,11 +180,12 @@ local function ApplyWishVisuals(frame)
 
     data.isUpdating = true 
     if not isActive then
-        if frame.Cooldown then frame.Cooldown:SetAlpha(0) end
+        -- 修正：用 SetDrawSwipe(false) 取代 SetAlpha(0)，保留倒计时文字
+        if frame.Cooldown then frame.Cooldown:SetDrawSwipe(false) end
         if frame.Icon.SetDesaturation then frame.Icon:SetDesaturation(1) else frame.Icon:SetDesaturated(true) end
         frame.Icon:SetVertexColor(0.6, 0.6, 0.6)
     else
-        if frame.Cooldown then frame.Cooldown:SetAlpha(1) end
+        if frame.Cooldown then frame.Cooldown:SetDrawSwipe(true) end
         if frame.Icon.SetDesaturation then frame.Icon:SetDesaturation(0) else frame.Icon:SetDesaturated(false) end
         frame.Icon:SetVertexColor(1, 1, 1)
     end
@@ -210,7 +226,7 @@ function Tracker:RefreshAll()
     end
 end
 
-function Tracker:OnEnable()
+function Tracker:Initialize()
     E:Delay(1, function()
         local db = E.db.WishFlex.cdTracker
         if db.isFirstInit then
@@ -228,6 +244,7 @@ function Tracker:OnEnable()
         if db.resourceSpells then for id in pairs(db.resourceSpells) do Tracker.resourceSpellSet[id] = true end end
         self:UpdateOptionsList()
 
+        -- 恢复你最初安全的事件注册，删掉我乱加的 UNIT_AURA
         self:RegisterEvent("PLAYER_TARGET_CHANGED", "RefreshAll")
         
         local powerUpdatePending = false
@@ -243,5 +260,5 @@ function Tracker:OnEnable()
     end)
 end
 
-function Tracker:Initialize()
+function Tracker:OnEnable()
 end
