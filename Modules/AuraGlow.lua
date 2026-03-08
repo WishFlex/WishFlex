@@ -7,6 +7,15 @@ local LCG = E.Libs and E.Libs.CustomGlow
 if not LCG then LCG = LibStub and LibStub("LibCustomGlow-1.0", true) end
 
 -- =========================================
+-- [内存泄漏克星]：预分配静态池
+-- =========================================
+local activeSkillFrames = {}
+local activeBuffFrames = {}
+local targetAuraCache = {}
+local BaseSpellCache = {}
+mod.fastTrackedBuffs = {} -- 【新增性能核心】：O(1)极速哈希字典
+
+-- =========================================
 -- 1. 初始化数据库
 -- =========================================
 P["WishFlex"] = P["WishFlex"] or { modules = {} }
@@ -16,86 +25,55 @@ P["WishFlex"].auraGlow = {
     showOnlyKnown = true, 
     spells = {
         -- 【战士】
-        ["107574"] = { buffID = 107574, duration = 0 }, 
-        ["1719"]   = { buffID = 1719,   duration = 0 }, 
-        ["871"]    = { buffID = 871,    duration = 0 }, 
-        ["12975"]  = { buffID = 12975,  duration = 0 }, 
-        ["118038"] = { buffID = 118038, duration = 0 }, 
-        ["23920"]  = { buffID = 23920,  duration = 0 }, 
-        ["184364"] = { buffID = 184364, duration = 0 }, 
-        ["32736"]  = { buffID = 32736,  duration = 0 }, 
+        ["107574"] = { buffID = 107574, duration = 0 }, ["1719"]   = { buffID = 1719,   duration = 0 }, 
+        ["871"]    = { buffID = 871,    duration = 0 }, ["12975"]  = { buffID = 12975,  duration = 0 }, 
+        ["118038"] = { buffID = 118038, duration = 0 }, ["23920"]  = { buffID = 23920,  duration = 0 }, 
+        ["184364"] = { buffID = 184364, duration = 0 }, ["32736"]  = { buffID = 32736,  duration = 0 }, 
         -- 【圣骑士】
-        ["31884"]  = { buffID = 31884,  duration = 0 }, 
-        ["231895"] = { buffID = 231895, duration = 0 }, 
-        ["642"]    = { buffID = 642,    duration = 0 }, 
-        ["31850"]  = { buffID = 31850,  duration = 0 }, 
-        ["86659"]  = { buffID = 86659,  duration = 0 }, 
-        ["498"]    = { buffID = 498,    duration = 0 }, 
+        ["31884"]  = { buffID = 31884,  duration = 0 }, ["231895"] = { buffID = 231895, duration = 0 }, 
+        ["642"]    = { buffID = 642,    duration = 0 }, ["31850"]  = { buffID = 31850,  duration = 0 }, 
+        ["86659"]  = { buffID = 86659,  duration = 0 }, ["498"]    = { buffID = 498,    duration = 0 }, 
         ["6940"]   = { buffID = 6940,   duration = 0 }, 
         -- 【猎人】
-        ["19574"]  = { buffID = 19574,  duration = 0 }, 
-        ["288613"] = { buffID = 288613, duration = 0 }, 
-        ["360952"] = { buffID = 360952, duration = 0 }, 
-        ["186265"] = { buffID = 186265, duration = 0 }, 
+        ["19574"]  = { buffID = 19574,  duration = 0 }, ["288613"] = { buffID = 288613, duration = 0 }, 
+        ["360952"] = { buffID = 360952, duration = 0 }, ["186265"] = { buffID = 186265, duration = 0 }, 
         ["264735"] = { buffID = 264735, duration = 0 }, 
         -- 【潜行者】
-        ["13750"]  = { buffID = 13750,  duration = 0 }, 
-        ["121471"] = { buffID = 121471, duration = 0 }, 
-        ["185313"] = { buffID = 185313, duration = 0 }, 
-        ["31224"]  = { buffID = 31224,  duration = 0 }, 
-        ["5277"]   = { buffID = 5277,   duration = 0 }, 
-        ["1966"]   = { buffID = 1966,   duration = 0 }, 
+        ["13750"]  = { buffID = 13750,  duration = 0 }, ["121471"] = { buffID = 121471, duration = 0 }, 
+        ["185313"] = { buffID = 185313, duration = 0 }, ["31224"]  = { buffID = 31224,  duration = 0 }, 
+        ["5277"]   = { buffID = 5277,   duration = 0 }, ["1966"]   = { buffID = 1966,   duration = 0 }, 
         -- 【牧师】
-        ["10060"]  = { buffID = 10060,  duration = 0 }, 
-        ["33206"]  = { buffID = 33206,  duration = 0 }, 
-        ["47536"]  = { buffID = 47536,  duration = 0 }, 
-        ["47788"]  = { buffID = 47788,  duration = 0 }, 
-        ["47585"]  = { buffID = 47585,  duration = 0 }, 
-        ["19236"]  = { buffID = 19236,  duration = 0 }, 
+        ["10060"]  = { buffID = 10060,  duration = 0 }, ["33206"]  = { buffID = 33206,  duration = 0 }, 
+        ["47536"]  = { buffID = 47536,  duration = 0 }, ["47788"]  = { buffID = 47788,  duration = 0 }, 
+        ["47585"]  = { buffID = 47585,  duration = 0 }, ["19236"]  = { buffID = 19236,  duration = 0 }, 
         -- 【死亡骑士】
-        ["51271"]  = { buffID = 51271,  duration = 0 }, 
-        ["49028"]  = { buffID = 49028,  duration = 0 }, 
-        ["48792"]  = { buffID = 48792,  duration = 0 }, 
-        ["48707"]  = { buffID = 48707,  duration = 0 }, 
+        ["51271"]  = { buffID = 51271,  duration = 0 }, ["49028"]  = { buffID = 49028,  duration = 0 }, 
+        ["48792"]  = { buffID = 48792,  duration = 0 }, ["48707"]  = { buffID = 48707,  duration = 0 }, 
         ["55233"]  = { buffID = 55233,  duration = 0 }, 
         -- 【萨满祭司】
-        ["114050"] = { buffID = 114050, duration = 0 }, 
-        ["114051"] = { buffID = 114051, duration = 0 }, 
-        ["114052"] = { buffID = 114052, duration = 0 }, 
-        ["108271"] = { buffID = 108271, duration = 0 }, 
+        ["114050"] = { buffID = 114050, duration = 0 }, ["114051"] = { buffID = 114051, duration = 0 }, 
+        ["114052"] = { buffID = 114052, duration = 0 }, ["108271"] = { buffID = 108271, duration = 0 }, 
         ["79206"]  = { buffID = 79206,  duration = 0 }, 
         -- 【法师】
-        ["190319"] = { buffID = 190319, duration = 0 }, 
-        ["12472"]  = { buffID = 12472,  duration = 0 }, 
-        ["365362"] = { buffID = 365362, duration = 0 }, 
-        ["45438"]  = { buffID = 45438,  duration = 0 }, 
-        ["110959"] = { buffID = 110959, duration = 0 }, 
-        ["108978"] = { buffID = 108978, duration = 0 }, 
-        -- 【术士】
-        ["104773"] = { buffID = 104773, duration = 0 }, 
-        ["108416"] = { buffID = 108416, duration = 0 }, 
+        ["190319"] = { buffID = 190319, duration = 0 }, ["12472"]  = { buffID = 12472,  duration = 0 }, 
+        ["365362"] = { buffID = 365362, duration = 0 }, ["45438"]  = { buffID = 45438,  duration = 0 }, 
+        ["110959"] = { buffID = 110959, duration = 0 }, ["108978"] = { buffID = 108978, duration = 0 }, 
+        -- 【术士】(自带黑眼、暴君追踪，默认使用手动时间)
+        ["104773"] = { buffID = 104773, duration = 0 }, ["108416"] = { buffID = 108416, duration = 0 }, 
+        ["205180"] = { buffID = 205180, duration = 20}, ["265187"] = { buffID = 265187, duration = 15}, 
         -- 【武僧】
-        ["137639"] = { buffID = 137639, duration = 0 }, 
-        ["115288"] = { buffID = 115288, duration = 0 }, 
-        ["122278"] = { buffID = 122278, duration = 0 }, 
-        ["115203"] = { buffID = 115203, duration = 0 }, 
-        ["122783"] = { buffID = 122783, duration = 0 }, 
-        ["122470"] = { buffID = 122470, duration = 0 }, 
+        ["137639"] = { buffID = 137639, duration = 0 }, ["115288"] = { buffID = 115288, duration = 0 }, 
+        ["122278"] = { buffID = 122278, duration = 0 }, ["115203"] = { buffID = 115203, duration = 0 }, 
+        ["122783"] = { buffID = 122783, duration = 0 }, ["122470"] = { buffID = 122470, duration = 0 }, 
         -- 【德鲁伊】
-        ["390414"] = { buffID = 390414, duration = 0 }, 
-        ["33891"]  = { buffID = 33891,  duration = 0 }, 
-        ["102558"] = { buffID = 102558, duration = 0 }, 
-        ["319454"] = { buffID = 319454, duration = 0 }, 
-        ["22812"]  = { buffID = 22812,  duration = 0 }, 
-        ["61336"]  = { buffID = 61336,  duration = 0 }, 
+        ["390414"] = { buffID = 390414, duration = 0 }, ["33891"]  = { buffID = 33891,  duration = 0 }, 
+        ["102558"] = { buffID = 102558, duration = 0 }, ["319454"] = { buffID = 319454, duration = 0 }, 
+        ["22812"]  = { buffID = 22812,  duration = 0 }, ["61336"]  = { buffID = 61336,  duration = 0 }, 
         -- 【恶魔猎手】
-        ["191427"] = { buffID = 191427, duration = 0 }, 
-        ["187827"] = { buffID = 187827, duration = 0 }, 
-        ["198589"] = { buffID = 198589, duration = 0 }, 
-        ["204021"] = { buffID = 204021, duration = 0 }, 
+        ["191427"] = { buffID = 191427, duration = 0 }, ["187827"] = { buffID = 187827, duration = 0 }, 
+        ["198589"] = { buffID = 198589, duration = 0 }, ["204021"] = { buffID = 204021, duration = 0 }, 
         -- 【唤魔师】
-        ["375087"] = { buffID = 375087, duration = 0 }, 
-        ["363916"] = { buffID = 363916, duration = 0 }, 
+        ["375087"] = { buffID = 375087, duration = 0 }, ["363916"] = { buffID = 363916, duration = 0 }, 
         ["374348"] = { buffID = 374348, duration = 0 }, 
     },
     text = { font = "Expressway", fontSize = 20, fontOutline = "OUTLINE", color = {r = 1, g = 0.82, b = 0}, offsetX = 0, offsetY = 0 },
@@ -107,73 +85,95 @@ P["WishFlex"].auraGlow = {
 local OverlayFrames = {}
 local ActiveGlows = {}
 mod.trackedAuras = {} 
+mod.manualTrackers = {} 
 
 -- =========================================
--- 2. 性能优化：API 内存缓存 (降耗核心)
+-- 2. 核心轻量化防爆引擎 
 -- =========================================
-local BaseSpellCache = {}
+local function IsSafeValue(val)
+    if val == nil then return false end
+    if type(issecretvalue) == "function" and issecretvalue(val) then return false end
+    return true
+end
+
 local function GetBaseSpellFast(spellID)
-    if not spellID then return nil end
+    if not IsSafeValue(spellID) then return nil end
     if BaseSpellCache[spellID] == nil then
-        if C_Spell and C_Spell.GetBaseSpell then
-            BaseSpellCache[spellID] = C_Spell.GetBaseSpell(spellID) or spellID
-        else
-            BaseSpellCache[spellID] = spellID
-        end
+        local base = spellID
+        pcall(function()
+            if C_Spell and C_Spell.GetBaseSpell then base = C_Spell.GetBaseSpell(spellID) or spellID end
+        end)
+        BaseSpellCache[spellID] = base
     end
     return BaseSpellCache[spellID]
 end
 
 local function MatchesSpellID(info, targetID)
     if not info then return false end
-    if info.spellID == targetID or info.overrideSpellID == targetID then return true end
+    if IsSafeValue(info.spellID) and (info.spellID == targetID or info.overrideSpellID == targetID) then return true end
     if info.linkedSpellIDs then
         for i = 1, #info.linkedSpellIDs do
-            if info.linkedSpellIDs[i] == targetID then return true end
+            if IsSafeValue(info.linkedSpellIDs[i]) and info.linkedSpellIDs[i] == targetID then return true end
         end
     end
-    if GetBaseSpellFast(info.spellID) == targetID then return true end
-    return false
-end
-
-local function HasAuraInstanceID(value)
-    if value == nil then return false end
-    if issecretvalue and issecretvalue(value) then return true end
-    if type(value) == "number" and value == 0 then return false end
-    return true
+    return GetBaseSpellFast(info.spellID) == targetID
 end
 
 local function VerifyAuraAlive(checkID, checkUnit)
-    if not checkID then return false end
-    local ok, aData = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, checkUnit, checkID)
-    return (ok and aData ~= nil)
+    if not IsSafeValue(checkID) then return false end
+    local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(checkUnit, checkID)
+    return auraData ~= nil
 end
 
-local function GetAuraDataAnywhere(buffID)
-    local ok, auraData = pcall(C_UnitAuras.GetPlayerAuraBySpellID, buffID)
-    if ok and auraData then return auraData, "player" end
-
-    if UnitExists("target") then
-        for _, filter in ipairs({"HARMFUL", "HELPFUL"}) do
-            for i = 1, 40 do
-                local aData
-                pcall(function() aData = C_UnitAuras.GetAuraDataByIndex("target", i, filter) end)
-                if not aData then break end
-                
-                local match = false
-                pcall(function() match = (aData.spellId == buffID) end)
-                if match then return aData, "target" end
+local function IsValidActiveAura(aura)
+    if type(aura) ~= "table" then return false end
+    local isValid = false
+    pcall(function()
+        if aura.auraInstanceID then
+            isValid = true
+            if IsSafeValue(aura.duration) and type(aura.duration) == "number" and aura.duration <= 0 then
+                isValid = false
             end
         end
+    end)
+    return isValid
+end
+
+-- 【性能优化模块】：生成 O(1) 的哈希缓存，斩断所有多余的 for 循环比对
+function mod:BuildFastCache()
+    wipe(mod.fastTrackedBuffs)
+    if E.db.WishFlex and E.db.WishFlex.auraGlow and E.db.WishFlex.auraGlow.spells then
+        for k, v in pairs(E.db.WishFlex.auraGlow.spells) do
+            local sid = tonumber(k)
+            local bid = (type(v) == "table" and v.buffID) or sid
+            if sid then mod.fastTrackedBuffs[sid] = true end
+            if bid then mod.fastTrackedBuffs[bid] = true end
+        end
     end
-    return nil, "player"
+end
+
+-- 【性能优化模块】：O(1) 极速核验增益框是否需要被隐藏
+local function ShouldHideFrame(info)
+    if not info then return false end
+    if IsSafeValue(info.spellID) then
+        if mod.fastTrackedBuffs[info.spellID] or mod.fastTrackedBuffs[info.overrideSpellID] then return true end
+        local baseID = GetBaseSpellFast(info.spellID)
+        if baseID and mod.fastTrackedBuffs[baseID] then return true end
+    end
+    if info.linkedSpellIDs then
+        for i = 1, #info.linkedSpellIDs do
+            local lid = info.linkedSpellIDs[i]
+            if IsSafeValue(lid) and mod.fastTrackedBuffs[lid] then return true end
+        end
+    end
+    return false
 end
 
 -- =========================================
 -- 3. 设置界面
 -- =========================================
 local function IsSpellLearned(spellID)
-    if not spellID then return false end
+    if not IsSafeValue(spellID) then return false end
     if IsPlayerSpell(spellID) then return true end
     if C_Spell and C_Spell.IsSpellKnownOrOverridesKnown and C_Spell.IsSpellKnownOrOverridesKnown(spellID) then return true end
     return false
@@ -190,12 +190,12 @@ local function InjectOptions()
         set = function(info, v) E.db.WishFlex.auraGlow[info[#info]] = v; mod:UpdateGlows(true) end,
         args = {
             enable = { order = 1, type = "toggle", name = "启用高亮提醒" },
-            showOnlyKnown = { order = 2, type = "toggle", name = "仅显示已学技能", desc = "开启后，下拉列表会自动过滤，只显示当前专精学会的技能。\n如果需要配置饰品、光环等非技能效果，请关闭此选项。" },
-            desc = { order = 3, type = "description", name = "|cff00ffcc巅峰方案：|r\n极致性能优化版！支持脱战智能降频、全域单次扫描法与底层 API 内存级缓存。\n" },
+            showOnlyKnown = { order = 2, type = "toggle", name = "仅显示已学技能", desc = "开启后，下拉列表会自动过滤，只显示当前专精学会的技能。" },
+            desc = { order = 3, type = "description", name = "|cff00ffcc状态提示：|r\n常规技能请使用【自动模式】。如果是【召唤黑眼】等特殊仆从，请切换为【手动模式】并填入固定持续时间！\n" },
             spellManagement = {
                 order = 4, type = "group", name = "法术管理", guiInline = true,
                 args = {
-                    addSpell = { order = 1, type = "input", name = "添加技能ID", get = function() return "" end, set = function(_, v) local id = tonumber(v) if id then E.db.WishFlex.auraGlow.spells[tostring(id)] = { buffID = id, duration = 0 }; mod.selectedSpell = tostring(id) end end },
+                    addSpell = { order = 1, type = "input", name = "添加技能ID", get = function() return "" end, set = function(_, v) local id = tonumber(v) if id then E.db.WishFlex.auraGlow.spells[tostring(id)] = { buffID = id, duration = 0 }; mod.selectedSpell = tostring(id); mod:BuildFastCache(); mod:UpdateGlows(true) end end },
                     selectSpell = { 
                         order = 2, type = "select", name = "管理已添加技能", 
                         values = function() 
@@ -204,18 +204,51 @@ local function InjectOptions()
                                 local id = tonumber(k)
                                 local shouldShow = true
                                 if E.db.WishFlex.auraGlow.showOnlyKnown then shouldShow = IsSpellLearned(id) end
-                                if shouldShow then
-                                    local name = C_Spell.GetSpellName(id) or "未知技能" 
-                                    vals[k] = name .. " (" .. k .. ")" 
-                                end
+                                if shouldShow then vals[k] = (C_Spell.GetSpellName(id) or "未知技能") .. " (" .. k .. ")" end
                             end 
                             return vals 
                         end, 
                         get = function() return mod.selectedSpell end, 
                         set = function(_, v) mod.selectedSpell = v end 
                     },
-                    editBuff = { order = 3, type = "input", name = "触发发光的Buff ID", get = function() local d = mod.selectedSpell and E.db.WishFlex.auraGlow.spells[mod.selectedSpell]; return d and tostring(type(d) == "table" and d.buffID or d) or "" end, set = function(_, v) local id = tonumber(v); if mod.selectedSpell and id then if type(E.db.WishFlex.auraGlow.spells[mod.selectedSpell]) ~= "table" then E.db.WishFlex.auraGlow.spells[mod.selectedSpell] = { buffID = id, duration = 0 } else E.db.WishFlex.auraGlow.spells[mod.selectedSpell].buffID = id end; mod:UpdateGlows(true) end end, disabled = function() return not mod.selectedSpell end },
-                    deleteSpell = { order = 4, type = "execute", name = "删除选中", func = function() if mod.selectedSpell then local id = tonumber(mod.selectedSpell); E.db.WishFlex.auraGlow.spells[mod.selectedSpell] = nil; mod.selectedSpell = nil; if ActiveGlows[id] then ActiveGlows[id] = false; if OverlayFrames[id] then LCG.PixelGlow_Stop(OverlayFrames[id], "WishAuraDurationGlow"); OverlayFrames[id]:Hide() end end; if _G.BuffIconCooldownViewer and _G.BuffIconCooldownViewer.itemFramePool then for frame in _G.BuffIconCooldownViewer.itemFramePool:EnumerateActive() do if frame.cooldownInfo and MatchesSpellID(frame.cooldownInfo, id) then frame:SetAlpha(1); frame:SetWidth(45); frame:EnableMouse(true) end end end; local CC = WUI:GetModule('CooldownCustom', true); if CC and CC.TriggerLayout then CC:TriggerLayout() end end end, disabled = function() return not mod.selectedSpell end }
+                    editBuff = { order = 3, type = "input", name = "触发发光的Buff ID", get = function() local d = mod.selectedSpell and E.db.WishFlex.auraGlow.spells[mod.selectedSpell]; return d and tostring(type(d) == "table" and d.buffID or d) or "" end, set = function(_, v) local id = tonumber(v); if mod.selectedSpell and id then if type(E.db.WishFlex.auraGlow.spells[mod.selectedSpell]) ~= "table" then E.db.WishFlex.auraGlow.spells[mod.selectedSpell] = { buffID = id, duration = 0 } else E.db.WishFlex.auraGlow.spells[mod.selectedSpell].buffID = id end; mod:BuildFastCache(); mod:UpdateGlows(true) end end, disabled = function() return not mod.selectedSpell end },
+                    
+                    trackMode = {
+                        order = 4, type = "select", name = "追踪模式",
+                        desc = "【自动追踪】：适用于常规光环，读取底层原生时长。\n【手动倒数】：专门用来解决【召唤黑眼】等暴雪不给光环数据的实体仆从。施法后强制触发！",
+                        values = {
+                            ["auto"] = "自动追踪 (推荐：常规增益)",
+                            ["manual"] = "手动倒数 (专用：实体仆从)"
+                        },
+                        get = function()
+                            local d = mod.selectedSpell and E.db.WishFlex.auraGlow.spells[mod.selectedSpell]
+                            if type(d) == "table" then return (d.duration and d.duration > 0) and "manual" or "auto" end
+                            return "auto"
+                        end,
+                        set = function(_, v)
+                            if mod.selectedSpell and type(E.db.WishFlex.auraGlow.spells[mod.selectedSpell]) == "table" then
+                                if v == "auto" then
+                                    E.db.WishFlex.auraGlow.spells[mod.selectedSpell].duration = 0
+                                else
+                                    E.db.WishFlex.auraGlow.spells[mod.selectedSpell].duration = 20 
+                                end
+                                mod:BuildFastCache(); mod:UpdateGlows(true)
+                            end
+                        end,
+                        disabled = function() return not mod.selectedSpell end
+                    },
+                    
+                    editDuration = { 
+                        order = 5, type = "input", name = "手动持续时间(秒)", 
+                        desc = "设定该实体仆从存在的固定时间。\n填入后，只要你施放该技能，图标将立刻强制高亮并倒数！", 
+                        get = function() local d = mod.selectedSpell and E.db.WishFlex.auraGlow.spells[mod.selectedSpell]; return d and tostring(type(d) == "table" and d.duration or 0) or "0" end, 
+                        set = function(_, v) local val = tonumber(v); if mod.selectedSpell and val then if type(E.db.WishFlex.auraGlow.spells[mod.selectedSpell]) ~= "table" then E.db.WishFlex.auraGlow.spells[mod.selectedSpell] = { buffID = tonumber(mod.selectedSpell), duration = val } else E.db.WishFlex.auraGlow.spells[mod.selectedSpell].duration = val end; mod:BuildFastCache(); mod:UpdateGlows(true) end end, 
+                        disabled = function() 
+                            local d = mod.selectedSpell and E.db.WishFlex.auraGlow.spells[mod.selectedSpell]
+                            return not (type(d) == "table" and d.duration and d.duration > 0)
+                        end 
+                    },
+                    deleteSpell = { order = 6, type = "execute", name = "删除选中", func = function() if mod.selectedSpell then local id = tonumber(mod.selectedSpell); E.db.WishFlex.auraGlow.spells[mod.selectedSpell] = nil; mod.selectedSpell = nil; if ActiveGlows[id] then ActiveGlows[id] = false; if OverlayFrames[id] then LCG.PixelGlow_Stop(OverlayFrames[id], "WishAuraDurationGlow"); OverlayFrames[id]:Hide() end end; local CC = WUI:GetModule('CooldownCustom', true); if CC and CC.TriggerLayout then CC:TriggerLayout() end; mod:BuildFastCache(); mod:UpdateGlows(true) end end, disabled = function() return not mod.selectedSpell end }
                 }
             },
             glowGroup = {
@@ -257,12 +290,10 @@ local function GetCropCoords(w, h)
     if math.abs(ratio - 1) < 0.05 then return l, r, t, b end
     if ratio > 1 then
         local crop = (1 - (1/ratio)) / 2
-        local rangeY = b - t
-        return l, r, t + rangeY * crop, b - rangeY * crop
+        return l, r, t + (b - t) * crop, b - (b - t) * crop
     else
         local crop = (1 - ratio) / 2
-        local rangeX = r - l
-        return l + rangeX * crop, r - rangeX * crop, t, b
+        return l + (r - l) * crop, r - (r - l) * crop, t, b
     end
 end
 
@@ -310,27 +341,21 @@ end
 local function SyncOverlayTextAndVisuals(overlay)
     local cfg = E.db.WishFlex.auraGlow.text
     local fontPath = LSM:Fetch('font', cfg.font)
-    local r, g, b = cfg.color.r, cfg.color.g, cfg.color.b
     
     if overlay.lastFont ~= fontPath or overlay.lastSize ~= cfg.fontSize or overlay.lastOutline ~= cfg.fontOutline then
         overlay.durationText:SetFont(fontPath, cfg.fontSize, cfg.fontOutline)
-        overlay.lastFont = fontPath
-        overlay.lastSize = cfg.fontSize
-        overlay.lastOutline = cfg.fontOutline
+        overlay.lastFont, overlay.lastSize, overlay.lastOutline = fontPath, cfg.fontSize, cfg.fontOutline
     end
     
-    if overlay.lastR ~= r or overlay.lastG ~= g or overlay.lastB ~= b then
-        overlay.durationText:SetTextColor(r, g, b)
-        overlay.lastR = r
-        overlay.lastG = g
-        overlay.lastB = b
+    if overlay.lastR ~= cfg.color.r or overlay.lastG ~= cfg.color.g or overlay.lastB ~= cfg.color.b then
+        overlay.durationText:SetTextColor(cfg.color.r, cfg.color.g, cfg.color.b)
+        overlay.lastR, overlay.lastG, overlay.lastB = cfg.color.r, cfg.color.g, cfg.color.b
     end
 
     if overlay.lastOffsetX ~= cfg.offsetX or overlay.lastOffsetY ~= cfg.offsetY then
         overlay.durationText:ClearAllPoints()
         overlay.durationText:SetPoint("CENTER", overlay, "CENTER", cfg.offsetX, cfg.offsetY)
-        overlay.lastOffsetX = cfg.offsetX
-        overlay.lastOffsetY = cfg.offsetY
+        overlay.lastOffsetX, overlay.lastOffsetY = cfg.offsetX, cfg.offsetY
     end
 end
 
@@ -378,9 +403,6 @@ local function GetOrCreateOverlay(parentFrame, spellID)
     return OverlayFrames[spellID]
 end
 
--- =========================================
--- 6. 发光与扫描引擎
--- =========================================
 local function ApplyIndependentGlow(ov)
     local cfg = E.db.WishFlex.auraGlow
     
@@ -395,120 +417,172 @@ local function ApplyIndependentGlow(ov)
 end
 
 -- =========================================
--- 7. 性能优化：全域单次扫描法 (降耗核心)
+-- 7. 动态引擎：无懈可击的最强核心
 -- =========================================
 function mod:UpdateGlows(forceUpdate)
     if not E.db.WishFlex.auraGlow.enable then return end
     mod.trackedAuras = mod.trackedAuras or {}
+    mod.manualTrackers = mod.manualTrackers or {}
 
-    -- [优化点 1]：单次统一扫描所有的底层框架，大幅降低 CPU 循环嵌套占用
-    local activeSkillFrames = {}
-    local activeBuffFrames = {}
+    wipe(activeSkillFrames)
+    wipe(activeBuffFrames)
+    wipe(targetAuraCache)
 
     for _, viewer in ipairs({_G.EssentialCooldownViewer, _G.UtilityCooldownViewer}) do
         if viewer and viewer.itemFramePool then
-            for frame in viewer.itemFramePool:EnumerateActive() do
-                if frame:IsVisible() and frame.cooldownInfo then activeSkillFrames[#activeSkillFrames+1] = frame end
+            for f in viewer.itemFramePool:EnumerateActive() do
+                if f:IsVisible() and f.cooldownInfo then activeSkillFrames[#activeSkillFrames+1] = f end
             end
         end
     end
 
     for _, viewer in ipairs({_G.BuffIconCooldownViewer, _G.BuffBarCooldownViewer}) do
         if viewer and viewer.itemFramePool then
-            for frame in viewer.itemFramePool:EnumerateActive() do
-                if frame.cooldownInfo then activeBuffFrames[#activeBuffFrames+1] = frame end
+            for f in viewer.itemFramePool:EnumerateActive() do
+                if f.cooldownInfo then activeBuffFrames[#activeBuffFrames+1] = f end
             end
         end
     end
 
-    local function FastFindSkillFrame(targetID)
-        for i = 1, #activeSkillFrames do
-            if MatchesSpellID(activeSkillFrames[i].cooldownInfo, targetID) then return activeSkillFrames[i] end
-        end
-        return nil
-    end
+    local targetScanned = false
 
-    local function FastFindBuffFrame(targetID)
-        for i = 1, #activeBuffFrames do
-            if MatchesSpellID(activeBuffFrames[i].cooldownInfo, targetID) then return activeBuffFrames[i] end
-        end
-        return nil
-    end
-
-    -- 确保数据向下兼容
-    local cleanSpells = {}
-    for k, v in pairs(E.db.WishFlex.auraGlow.spells) do
-        if type(v) == "table" then cleanSpells[k] = v else cleanSpells[k] = { buffID = v, duration = 0 } end
-    end
-    E.db.WishFlex.auraGlow.spells = cleanSpells
-
-    -- 核心处理循环
     for spellIDStr, spellData in pairs(E.db.WishFlex.auraGlow.spells) do
         local spellID = tonumber(spellIDStr)
         local buffID = type(spellData) == "table" and spellData.buffID or tonumber(spellData)
+        local customDuration = type(spellData) == "table" and spellData.duration or 0
+        
         if buffID then
-            local skillFrame = FastFindSkillFrame(spellID)
-            local buffFrame = FastFindBuffFrame(buffID)
-            
-            local auraActive = false
-            local auraInstanceID = nil
-            local unit = "player"
-            
-            if buffFrame then
-                local tempID, tempUnit
-                pcall(function() tempID = buffFrame.auraInstanceID end)
-                pcall(function() tempUnit = buffFrame.auraDataUnit or "player" end)
-                if tempID and VerifyAuraAlive(tempID, tempUnit) then
-                    auraInstanceID = tempID; unit = tempUnit; auraActive = true
-                    mod.trackedAuras[buffID] = { id = auraInstanceID, unit = unit }
-                end
+            local skillFrame = nil
+            for i = 1, #activeSkillFrames do
+                if MatchesSpellID(activeSkillFrames[i].cooldownInfo, spellID) then skillFrame = activeSkillFrames[i]; break end
             end
             
-            if not auraActive and mod.trackedAuras[buffID] then
-                local t = mod.trackedAuras[buffID]
-                if VerifyAuraAlive(t.id, t.unit) then
-                    auraActive = true; auraInstanceID = t.id; unit = t.unit
+            if skillFrame and skillFrame:IsVisible() then
+                local auraActive = false
+                local auraInstanceID = nil
+                local unit = "player"
+                
+                -- 【施法截获型模式（专治召唤黑眼）】
+                if customDuration > 0 then
+                    local tracker = mod.manualTrackers[buffID]
+                    if tracker and GetTime() < (tracker.start + tracker.dur) then
+                        auraActive = true
+                    else
+                        mod.manualTrackers[buffID] = nil 
+                    end
                 else
-                    mod.trackedAuras[buffID] = nil 
-                end
-            end
-            
-            if not auraActive then
-                local auraData, foundUnit = GetAuraDataAnywhere(buffID)
-                if auraData then
-                    local tempID
-                    pcall(function() tempID = auraData.auraInstanceID end)
-                    if tempID then 
-                        auraActive = true; auraInstanceID = tempID; unit = foundUnit
-                        mod.trackedAuras[buffID] = { id = auraInstanceID, unit = unit } 
+                    -- 【完美原生扫描路线】
+                    local buffFrame = nil
+                    for i = 1, #activeBuffFrames do
+                        if MatchesSpellID(activeBuffFrames[i].cooldownInfo, buffID) then buffFrame = activeBuffFrames[i]; break end
+                    end
+                    
+                    if buffFrame then
+                        local tempID = buffFrame.auraInstanceID
+                        local tempUnit = buffFrame.auraDataUnit or "player"
+                        if IsSafeValue(tempID) and VerifyAuraAlive(tempID, tempUnit) then
+                            auraInstanceID, unit, auraActive = tempID, tempUnit, true
+                            mod.trackedAuras[buffID] = { id = auraInstanceID, unit = unit }
+                        end
+                    end
+                    
+                    if not auraActive and mod.trackedAuras[buffID] then
+                        local t = mod.trackedAuras[buffID]
+                        if VerifyAuraAlive(t.id, t.unit) then
+                            auraActive, auraInstanceID, unit = true, t.id, t.unit
+                        else
+                            mod.trackedAuras[buffID] = nil 
+                        end
+                    end
+                    
+                    if not auraActive then
+                        local auraData = C_UnitAuras.GetPlayerAuraBySpellID(buffID)
+                        if auraData and IsSafeValue(auraData.auraInstanceID) then
+                            auraActive, auraInstanceID, unit = true, auraData.auraInstanceID, "player"
+                            mod.trackedAuras[buffID] = { id = auraInstanceID, unit = unit }
+                        elseif UnitExists("target") then
+                            if not targetScanned then
+                                targetScanned = true
+                                for _, filter in ipairs({"HELPFUL", "HARMFUL"}) do
+                                    for i = 1, 40 do
+                                        local aura = C_UnitAuras.GetAuraDataByIndex("target", i, filter)
+                                        if not aura then break end
+                                        if IsSafeValue(aura.spellId) and IsSafeValue(aura.auraInstanceID) then
+                                            targetAuraCache[aura.spellId] = aura.auraInstanceID
+                                        end
+                                    end
+                                end
+                            end
+                            if targetAuraCache[buffID] then
+                                auraActive, auraInstanceID, unit = true, targetAuraCache[buffID], "target"
+                                mod.trackedAuras[buffID] = { id = auraInstanceID, unit = unit }
+                            end
+                        end
                     end
                 end
-            end
-            
-            if skillFrame and skillFrame:IsVisible() and auraActive then
-                local overlay = GetOrCreateOverlay(skillFrame, spellID)
-                overlay.sourceFrame = skillFrame
                 
-                if auraInstanceID then
-                    local ok, durObj = pcall(C_UnitAuras.GetAuraDuration, unit, auraInstanceID)
-                    if ok and durObj then pcall(function() overlay.cd:SetCooldownFromDurationObject(durObj) end) end
-                end
-                
-                SnapOverlayToFrame(overlay, skillFrame)
-                overlay:Show()
-                if forceUpdate or not ActiveGlows[spellID] then
-                    ActiveGlows[spellID] = true
-                    ApplyIndependentGlow(overlay)
+                -- 输出渲染阶段
+                if auraActive then
+                    local overlay = GetOrCreateOverlay(skillFrame, spellID)
+                    overlay.sourceFrame = skillFrame
+                    
+                    if customDuration > 0 then
+                        local tracker = mod.manualTrackers[buffID]
+                        if tracker then
+                            pcall(function() overlay.cd:SetCooldown(tracker.start, tracker.dur) end)
+                        end
+                    elseif auraInstanceID then
+                        local durObj = C_UnitAuras.GetAuraDuration(unit, auraInstanceID)
+                        if durObj then pcall(function() overlay.cd:SetCooldownFromDurationObject(durObj) end) end
+                    end
+                    
+                    SnapOverlayToFrame(overlay, skillFrame)
+                    
+                    overlay:Show()
+                    if forceUpdate or not ActiveGlows[spellID] then
+                        ActiveGlows[spellID] = true
+                        ApplyIndependentGlow(overlay)
+                    end
+                else
+                    ActiveGlows[spellID] = false
+                    if OverlayFrames[spellID] then 
+                        LCG.PixelGlow_Stop(OverlayFrames[spellID], "WishAuraDurationGlow")
+                        if OverlayFrames[spellID].cd then OverlayFrames[spellID].cd:Clear() end
+                        OverlayFrames[spellID]:Hide() 
+                    end
                 end
             else
                 ActiveGlows[spellID] = false
                 if OverlayFrames[spellID] then 
                     LCG.PixelGlow_Stop(OverlayFrames[spellID], "WishAuraDurationGlow")
-                    LCG.AutoCastGlow_Stop(OverlayFrames[spellID], "WishAuraDurationGlow")
-                    LCG.ButtonGlow_Stop(OverlayFrames[spellID])
-                    LCG.ProcGlow_Stop(OverlayFrames[spellID], "WishAuraDurationGlow")
                     if OverlayFrames[spellID].cd then OverlayFrames[spellID].cd:Clear() end
                     OverlayFrames[spellID]:Hide() 
+                end
+            end
+        end
+    end
+    
+    -- 【性能优化版暴力镇压引擎：运用O(1)哈希字典彻底告别卡顿】
+    if E.db.WishFlex.auraGlow.enable then
+        for _, viewer in ipairs({_G.BuffIconCooldownViewer, _G.BuffBarCooldownViewer}) do
+            if viewer and viewer.itemFramePool then
+                for f in viewer.itemFramePool:EnumerateActive() do
+                    if f.cooldownInfo then
+                        local shouldHide = ShouldHideFrame(f.cooldownInfo)
+                        
+                        if shouldHide then
+                            if f:GetWidth() >= 1 and not f.wishFlexOrigWidth then f.wishFlexOrigWidth = f:GetWidth() end
+                            f:SetAlpha(0)
+                            if f.Icon then f.Icon:SetAlpha(0) end
+                            f:SetWidth(0.001)
+                            f:EnableMouse(false)
+                        else
+                            if f:GetWidth() < 1 then f:SetWidth(f.wishFlexOrigWidth or 45) end
+                            f:SetAlpha(1)
+                            if f.Icon then f.Icon:SetAlpha(1) end
+                            f:EnableMouse(true)
+                        end
+                    end
                 end
             end
         end
@@ -516,27 +590,49 @@ function mod:UpdateGlows(forceUpdate)
 end
 
 -- =========================================
--- 8. 增益静默隐藏钩子
+-- 8. 核心事件截获器 (黑眼等无实体Buff专用)
+-- =========================================
+function mod:UNIT_SPELLCAST_SUCCEEDED(event, unit, castGUID, spellID)
+    if unit ~= "player" then return end
+    if not E.db.WishFlex.auraGlow.enable then return end
+    
+    local triggered = false
+    for sIDStr, spellData in pairs(E.db.WishFlex.auraGlow.spells) do
+        local sID = tonumber(sIDStr)
+        local bID = type(spellData) == "table" and spellData.buffID or tonumber(spellData)
+        local dur = type(spellData) == "table" and spellData.duration or 0
+        
+        if dur > 0 and (spellID == sID or spellID == bID) then
+            mod.manualTrackers = mod.manualTrackers or {}
+            mod.manualTrackers[bID] = { start = GetTime(), dur = dur }
+            triggered = true
+        end
+    end
+    if triggered then mod:UpdateGlows() end
+end
+
+-- =========================================
+-- 9. 增益静默隐藏钩子 (运用 O(1) 字典，无损耗)
 -- =========================================
 local function HookBuffHide()
     local function HideIt(frame)
         if not E.db.WishFlex.auraGlow.enable or not frame.cooldownInfo then return end
         
-        if frame:GetWidth() >= 1 and not frame.wishFlexOrigWidth then
-            frame.wishFlexOrigWidth = frame:GetWidth()
-        end
+        if frame:GetWidth() >= 1 and not frame.wishFlexOrigWidth then frame.wishFlexOrigWidth = frame:GetWidth() end
         
-        for _, spellData in pairs(E.db.WishFlex.auraGlow.spells) do
-            local targetID = type(spellData) == "table" and spellData.buffID or tonumber(spellData)
-            if targetID and MatchesSpellID(frame.cooldownInfo, targetID) then
-                frame:SetAlpha(0); frame:SetWidth(0.001); frame:EnableMouse(false); return
-            end
-        end
+        local shouldHide = ShouldHideFrame(frame.cooldownInfo)
         
-        if frame:GetWidth() < 1 then 
-            frame:SetWidth(frame.wishFlexOrigWidth or 45) 
+        if shouldHide then
+            frame:SetAlpha(0)
+            if frame.Icon then frame.Icon:SetAlpha(0) end
+            frame:SetWidth(0.001)
+            frame:EnableMouse(false)
+        else
+            if frame:GetWidth() < 1 then frame:SetWidth(frame.wishFlexOrigWidth or 45) end
+            frame:SetAlpha(1)
+            if frame.Icon then frame.Icon:SetAlpha(1) end
+            frame:EnableMouse(true)
         end
-        frame:SetAlpha(1); frame:EnableMouse(true)
     end
 
     if _G.CooldownViewerBuffIconItemMixin then
@@ -550,17 +646,13 @@ local function HookBuffHide()
 end
 
 -- =========================================
--- 9. 事件触发与生命周期 (智能脱战降频核心)
+-- 10. 事件防抖合并引擎 (黄金帧率节流)
 -- =========================================
 local updatePending = false
 local function RequestUpdateGlows()
     if updatePending then return end
     updatePending = true
-    
-    -- [优化点 2]：脱战时，CPU 负荷将直接降低 80%！
-    local isCombat = InCombatLockdown()
-    local delay = isCombat and 0 or 0.2
-    
+    local delay = InCombatLockdown() and 0.08 or 0.3
     C_Timer.After(delay, function() 
         updatePending = false
         mod:UpdateGlows() 
@@ -574,6 +666,7 @@ local function SafeHook(object, funcName, callback)
 end
 
 function mod:UNIT_AURA(event, unit)
+    if not InCombatLockdown() and unit ~= "player" then return end
     if unit == "player" or unit == "target" then RequestUpdateGlows() end
 end
 
@@ -585,11 +678,16 @@ function mod:Initialize()
     if E.db.WishFlex and E.db.WishFlex.auraGlow and E.db.WishFlex.auraGlow.spells then
         local cleanSpells = {}
         for k, v in pairs(E.db.WishFlex.auraGlow.spells) do
-            if type(v) == "number" then cleanSpells[k] = { buffID = v, duration = 0 } else cleanSpells[k] = v end
+            if type(v) == "number" then
+                cleanSpells[k] = { buffID = v, duration = 0 }
+            else
+                cleanSpells[k] = { buffID = v.buffID or tonumber(k), duration = v.duration or 0 }
+            end
         end
         E.db.WishFlex.auraGlow.spells = cleanSpells
     end
-
+    
+    self:BuildFastCache()
     InjectOptions()
     if not E.db.WishFlex.modules.auraGlow then return end
     
@@ -597,6 +695,9 @@ function mod:Initialize()
     self:RegisterEvent("PLAYER_TARGET_CHANGED", "OnCombatEvent")
     self:RegisterEvent("PLAYER_REGEN_DISABLED", "OnCombatEvent")
     self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnCombatEvent")
+    
+    self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+    
     HookBuffHide()
     
     local viewers = { _G.BuffIconCooldownViewer, _G.EssentialCooldownViewer, _G.UtilityCooldownViewer, _G.BuffBarCooldownViewer }

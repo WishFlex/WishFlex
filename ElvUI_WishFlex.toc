@@ -7,6 +7,7 @@
 ## SavedVariables: WishFlex_Storage
 ## IconTexture: Interface\AddOns\ElvUI_WishFlex\Media\Textures\Logo2.tga
 ## Notes-zhCN: ElvUI增强小工具
+## SavedVariables: WishFlexGlobalDB
 
 Core.lua
 Modules\KeyBinder.lua

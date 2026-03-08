@@ -8,7 +8,7 @@ P["WishFlex"] = P["WishFlex"] or { modules = {} }
 P["WishFlex"].modules.smarthide = true
 P["WishFlex"].smarthide = {
     enable = true, forceShow = false,
-    filters = { unitframe = true, buffs = true, cooldowns = true, actionbar = true, minimap = true, friendly = false, actionTimer = true, classResource = true },
+    filters = { unitframe = true, buffs = true, cooldowns = true, actionbar = true, minimap = true, friendly = false, actionTimer = true, classResource = true, damageMeter = true },
 }
 
 local function InjectOptions()
@@ -31,58 +31,66 @@ local function InjectOptions()
                 get = function(i) return E.db.WishFlex.smarthide.filters[i[#i]] end,
                 set = function(i, v) E.db.WishFlex.smarthide.filters[i[#i]] = v; SH:UpdateVisibility() end,
                 args = {
-                    unitframe = {order=1, type="toggle", name="玩家框体"}, 
-                    buffs = {order=2, type="toggle", name="增益减益"}, 
-                    cooldowns = {order=3, type="toggle", name="冷却管理器(含防守条)"}, 
-                    actionTimer = {order=4, type="toggle", name="动作计时"}, 
+                    unitframe = {order=1, type="toggle", name="单位框体 (玩家/宠物/目标)"}, 
+                    buffs = {order=2, type="toggle", name="增益减益 (玩家光环)"}, 
+                    cooldowns = {order=3, type="toggle", name="冷却管理器"}, 
+                    actionTimer = {order=4, type="toggle", name="动作计时条"}, 
                     minimap = {order=5, type="toggle", name="小地图"},
                     classResource = {order=6, type="toggle", name="职业资源与能量条"},
-                    friendly = {order=7, type="toggle", name="友方NPC时隐藏", desc = "即使有目标，如果目标是友方NPC，依然保持隐藏状态。"},
+                    actionbar = {order=7, type="toggle", name="特定动作条 (宠物条)"},
+                    friendly = {order=8, type="toggle", name="友方NPC时隐藏", desc = "即使有目标，如果目标是友方NPC，依然保持隐藏状态。"},
+                    damageMeter = {order=9, type="toggle", name="伤害统计窗口"},
                 }
             }
         }
     }
 end
 
-local BuffHost = CreateFrame("Frame", "WishBuffHost", UIParent)
-local DebuffHost = CreateFrame("Frame", "WishDebuffHost", UIParent)
-local Bar10Host = CreateFrame("Frame", "WishBar10Host", UIParent)
-local BarPetHost = CreateFrame("Frame", "WishBarPetHost", UIParent)
-BuffHost:Show(); DebuffHost:Show(); Bar10Host:Show(); BarPetHost:Show()
+-- 全局宿主容器
+local WishBuffHost = CreateFrame("Frame", "WishBuffHost", UIParent)
+local WishDebuffHost = CreateFrame("Frame", "WishDebuffHost", UIParent)
+local WishBarPetHost = CreateFrame("Frame", "WishBarPetHost", UIParent)
+local WishClassResourceHost = CreateFrame("Frame", "WishClassResourceHost", UIParent)
+local WishCooldownHost = CreateFrame("Frame", "WishCooldownHost", UIParent)
+local WishActionTimerHost = CreateFrame("Frame", "WishActionTimerHost", UIParent)
+
+WishBuffHost:Show(); WishDebuffHost:Show(); WishBarPetHost:Show(); WishClassResourceHost:Show()
+WishCooldownHost:Show(); WishActionTimerHost:Show()
 
 local HiddenFrame = CreateFrame("Frame")
 HiddenFrame:Hide()
 
 local FRAME_CATEGORIES = {
-    ["ElvUF_Player.Health"] = { cat = "unitframe", isPlayerOnly = true },
-    ["ElvUF_Player.Portrait"] = { cat = "unitframe", isPlayerOnly = true },
-    ["ElvUF_Player.InfoPanel"] = { cat = "unitframe", isPlayerOnly = true },
-    ["ElvUF_Player.backdrop"] = { cat = "unitframe", isPlayerOnly = true },
+    ["ElvUF_Player"] = { cat = "unitframe", isPlayerOnly = true },
+    ["ElvUF_Pet"] = { cat = "unitframe", isPlayerOnly = true, requirePet = true }, 
     ["ElvUF_Target"] = { cat = "unitframe", isPlayerOnly = false },
-    ["EssentialCooldownViewer"] = { cat = "cooldowns", isPlayerOnly = false },
-    ["UtilityCooldownViewer"] = { cat = "cooldowns", isPlayerOnly = false },
+
+    -- 保护框体组：使用宿主容器避免报错
+    ["ElvUIPlayerBuffs"] = { cat = "buffs", isSpecialHost = "WishBuffHost" },
+    ["ElvUIPlayerDebuffs"] = { cat = "buffs", isSpecialHost = "WishDebuffHost" },
+    ["ElvUI_BarPet"] = { cat = "actionbar", isSpecialHost = "WishBarPetHost" },
     
-    -- 已移除 BuffIconCooldownViewer 的拦截，移交给 CooldownCustom.lua 处理
-    -- ["BuffIconCooldownViewer"] = { cat = "cooldowns", isPlayerOnly = false }, 
+    -- 资源条与冷却管理器：移入宿主容器，利用透明度屏蔽闪现
+    ["WishFlex_ClassBar"] = { cat = "classResource", isSpecialHost = "WishClassResourceHost" },
+    ["WishFlex_PowerBar"] = { cat = "classResource", isSpecialHost = "WishClassResourceHost" },
+    ["WishFlex_TertiaryBar"] = { cat = "classResource", isSpecialHost = "WishClassResourceHost" },
+    ["WishFlex_ManaBar"] = { cat = "classResource", isSpecialHost = "WishClassResourceHost" },
     
-    ["WishFlex_CooldownRow2_Anchor"] = { cat = "cooldowns", isPlayerOnly = false },
-    ["WishFlex_DefensiveViewer"] = { cat = "cooldowns", isPlayerOnly = false },
-    ["WishFlex_ResurrectIcon"] = { cat = "cooldowns", isPlayerOnly = false, isResIcon = true },
-    ["WishFlex_ActionTimer_Anchor"] = { cat = "actionTimer", isPlayerOnly = false },
-    ["WishFlex_ClassBar"] = { cat = "classResource", isPlayerOnly = false },
-    ["WishFlex_PowerBar"] = { cat = "classResource", isPlayerOnly = false },
-    ["WishFlex_TertiaryBar"] = { cat = "classResource", isPlayerOnly = false },
-    ["WishFlex_ManaBar"] = { cat = "classResource", isPlayerOnly = false },
-    ["ElvUIPlayerBuffs"] = { cat = "buffs", isSpecialHost = "BuffHost" },
-    ["ElvUIPlayerDebuffs"] = { cat = "buffs", isSpecialHost = "DebuffHost" },
-    ["ElvUI_Bar10"] = { cat = "actionbar", isSpecialHost = "Bar10Host" },
-    ["ElvUI_BarPet"] = { cat = "actionbar", isSpecialHost = "BarPetHost" }
+    ["EssentialCooldownViewer"] = { cat = "cooldowns", isSpecialHost = "WishCooldownHost" },
+    ["UtilityCooldownViewer"] = { cat = "cooldowns", isSpecialHost = "WishCooldownHost" },
+    ["WishFlex_CooldownRow2_Anchor"] = { cat = "cooldowns", isSpecialHost = "WishCooldownHost" },
+    ["WishFlex_ActionTimer_Anchor"] = { cat = "actionTimer", isSpecialHost = "WishActionTimerHost" },
+
+    -- 非保护框体组：直接安全使用 Show/Hide
+    ["DamageMeterSessionWindow1"] = { cat = "damageMeter", isPlayerOnly = false, isUnprotected = true },
+    ["DamageMeterSessionWindow2"] = { cat = "damageMeter", isPlayerOnly = false, isUnprotected = true },
+    ["DamageMeterSessionWindow3"] = { cat = "damageMeter", isPlayerOnly = false, isUnprotected = true },
+    ["DamageMeter"] = { cat = "damageMeter", isPlayerOnly = false, isUnprotected = true }
 }
 
 local FrameCache = {}
 local function GetCachedFrame(name)
     if FrameCache[name] then return FrameCache[name] end
-    
     local f = _G[name]
     if not f and name:find("%.") then
         local parts = {strsplit(".", name)}
@@ -94,69 +102,71 @@ local function GetCachedFrame(name)
             end 
         end
     end
-    
     if f then FrameCache[name] = f end
     return f
 end
 
+local HookedFrames = {}
+
+local function SecureAlphaHook(frame, alpha)
+    if frame.SmartHideTargetAlpha == 0 and alpha ~= 0 then
+        frame:SetAlpha(0)
+    end
+end
+
 local function SetFrameAlphaImmediate(frame, targetAlpha)
-    if not frame then return end
+    if type(frame) ~= "table" or not frame.SetAlpha then return end
+    
     if frame.isForceHidden then
-        if frame:IsShown() then frame:Hide() end
+        if frame.Hide and frame:IsShown() then frame:Hide() end
         if frame:GetAlpha() ~= 0 then frame:SetAlpha(0) end
         return
     end
 
-    UIFrameFadeRemoveFrame(frame) 
-    if frame:GetAlpha() ~= targetAlpha then frame:SetAlpha(targetAlpha) end
+    local isUnitFrame = frame.GetName and frame:GetName() and frame:GetName():find("ElvUF_")
+
+    if frame.SmartHideTargetAlpha == targetAlpha then return end
+    frame.SmartHideTargetAlpha = targetAlpha
+
+    if not HookedFrames[frame] then
+        hooksecurefunc(frame, "SetAlpha", SecureAlphaHook)
+        HookedFrames[frame] = true
+    end
+
+    if UIFrameFadeRemoveFrame then UIFrameFadeRemoveFrame(frame) end 
+    frame:SetAlpha(targetAlpha)
     
-    local name = frame:GetName() or ""
-    if name:find("ElvUF_") then return end
+    if isUnitFrame then
+        if not InCombatLockdown() and frame.EnableMouse then
+            frame:EnableMouse(targetAlpha == 1)
+        end
+        return 
+    end
+
     if InCombatLockdown() then return end
 
     if targetAlpha == 0 then 
-        if frame:IsShown() then frame:Hide() end 
+        if frame.Hide and frame:IsShown() then frame:Hide() end 
     else 
-        if not frame:IsShown() then frame:Show() end 
+        if frame.Show and not frame:IsShown() then frame:Show() end 
     end
-end
-
-local function IsInValidResEnvironment()
-    local _, instanceType = GetInstanceInfo()
-    return (instanceType == "party" or instanceType == "raid" or UnitExists("boss1"))
 end
 
 local function IsPlayerFlying() return type(IsFlying) == "function" and IsFlying() end
 
--- 替换后的核心小地图隐藏逻辑
 function SH:UpdateMinimap(show)
-    local inCombat = InCombatLockdown()
+    local frames = { _G.MinimapCluster, _G.Minimap, _G.MinimapBackdrop, _G.MinimapPanel, _G.MMHolder }
     local targetAlpha = show and 1 or 0
-    
-    -- 核心修复：连带小地图相关的所有底层面板、按钮框体、原生框架一网打尽
-    local frames = {
-        _G.MinimapCluster,
-        _G.Minimap,
-        _G.MinimapBackdrop,
-        _G.MinimapPanel,
-        _G.MMHolder,
-    }
     
     for _, f in ipairs(frames) do
         if f then
-            UIFrameFadeRemoveFrame(f)
+            if UIFrameFadeRemoveFrame then UIFrameFadeRemoveFrame(f) end
             if f:GetAlpha() ~= targetAlpha then f:SetAlpha(targetAlpha) end
             
-            if not inCombat then
-                -- 脱战时：直接使用强力的 Hide 砍掉父层渲染，完美隐去所有刁钻插件按钮
-                if targetAlpha == 0 then
-                    if f:IsShown() then f:Hide() end
-                else
-                    if not f:IsShown() then f:Show() end
-                end
+            if show then
+                if not f:IsShown() then f:Show() end
             else
-                -- 战斗时：无法随意 Hide 被保护的小地图，如果是透明状态就禁用鼠标防止点到空气
-                if f.EnableMouse then f:EnableMouse(targetAlpha == 1) end
+                if f:IsShown() then f:Hide() end
             end
         end
     end
@@ -181,15 +191,19 @@ function SH:UpdateVisibility()
     local shouldShowMinimap = (inCombat or hasTarget or isFlying) and not inPetBattle
     local shouldShowPlayerOnly = (inCombat or hasTarget) and not inPetBattle
     local shouldShowOthers = (inCombat or hasTarget) and not inPetBattle
-    if inVehicle then shouldShowOthers = false end
-
-    if db.forceShow then shouldShowMinimap = true; shouldShowPlayerOnly = true; shouldShowOthers = true end
-
-    -- 【修复核心】：避开 Lua 逻辑陷阱，确保隐藏选项真实生效
-    local finalMinimapShow = true
-    if db.filters.minimap then 
-        finalMinimapShow = shouldShowMinimap 
+    
+    if inVehicle then 
+        shouldShowOthers = false 
     end
+
+    if db.forceShow then 
+        shouldShowMinimap = true; 
+        shouldShowPlayerOnly = true; 
+        shouldShowOthers = true 
+    end
+
+    local finalMinimapShow = true
+    if db.filters.minimap then finalMinimapShow = shouldShowMinimap end
     self:UpdateMinimap(finalMinimapShow)
 
     for name, info in pairs(FRAME_CATEGORIES) do
@@ -202,19 +216,57 @@ function SH:UpdateVisibility()
                 targetAlpha = shouldShowOthers and 1 or 0
             end
 
+            if info.requirePet and not UnitExists("pet") then targetAlpha = 0 end
+
             local isControlled = db.filters[info.cat]
             if not isControlled then targetAlpha = 1 end
 
-            if info.isResIcon and not (inCombat or (hasTarget and IsInValidResEnvironment())) then targetAlpha = 0 end
+            if info.isSpecialHost then
+                local hostFrame = _G[info.isSpecialHost]
+                if hostFrame then
+                    if f:GetParent() ~= hostFrame and not InCombatLockdown() then
+                        f:SetParent(hostFrame)
+                    end
+                    
+                    local finalAlpha = targetAlpha
+                    if info.isSpecialHost == "WishBarPetHost" and not UnitExists("pet") then
+                        finalAlpha = 0
+                    end
+                    
+                    hostFrame:SetAlpha(finalAlpha)
+                end
+            
+            elseif info.isUnprotected then
+                if targetAlpha == 1 then
+                    if not f:IsShown() then f:Show() end
+                else
+                    if f:IsShown() then f:Hide() end
+                end
 
-            if info.isSpecialHost == "BuffHost" then
-                if f:GetParent() ~= BuffHost then f:SetParent(BuffHost) end; BuffHost:SetAlpha(targetAlpha)
-            elseif info.isSpecialHost == "DebuffHost" then
-                if f:GetParent() ~= DebuffHost then f:SetParent(DebuffHost) end; DebuffHost:SetAlpha(targetAlpha)
-            elseif info.isSpecialHost == "Bar10Host" then
-                if f:GetParent() ~= Bar10Host then f:SetParent(Bar10Host) end; Bar10Host:SetAlpha(targetAlpha)
-            elseif info.isSpecialHost == "BarPetHost" then
-                if f:GetParent() ~= BarPetHost then f:SetParent(BarPetHost) end; BarPetHost:SetAlpha((targetAlpha == 1 and UnitExists("pet")) and 1 or 0)
+            elseif name == "ElvUF_Player" then
+                if f:GetAlpha() ~= 1 then 
+                    f.SmartHideTargetAlpha = 1
+                    f:SetAlpha(1) 
+                end
+                
+                local elements = {
+                    "Health", "Power", "Portrait", "InfoPanel", "AuraBars", 
+                    "Buffs", "Debuffs", "ThreatIndicator", "ResurrectIndicator",
+                    "CombatIndicator", "RestingIndicator", "backdrop", "bg",
+                    "RaisedElementParent" 
+                }
+                for _, elName in ipairs(elements) do
+                    local el = f[elName]
+                    if el and type(el) == "table" and el.SetAlpha then 
+                        el.SmartHideTargetAlpha = targetAlpha
+                        if not HookedFrames[el] then
+                            hooksecurefunc(el, "SetAlpha", SecureAlphaHook)
+                            HookedFrames[el] = true
+                        end
+                        if UIFrameFadeRemoveFrame then UIFrameFadeRemoveFrame(el) end
+                        el:SetAlpha(targetAlpha)
+                    end
+                end
             else
                 SetFrameAlphaImmediate(f, targetAlpha)
             end
@@ -224,13 +276,18 @@ function SH:UpdateVisibility()
     local playerFrame = _G["ElvUF_Player"]
     if playerFrame and playerFrame.customTexts then
         local textAlpha = 1
-        if db.filters.unitframe and not shouldShowPlayerOnly then
-            textAlpha = 0
-        end
+        if db.filters.unitframe and not shouldShowPlayerOnly then textAlpha = 0 end
         if db.forceShow then textAlpha = 1 end
-        
         for _, textFrame in pairs(playerFrame.customTexts) do 
-            if textFrame then SetFrameAlphaImmediate(textFrame, textAlpha) end 
+            if textFrame and type(textFrame) == "table" and textFrame.SetAlpha then 
+                textFrame.SmartHideTargetAlpha = textAlpha
+                if not HookedFrames[textFrame] then
+                    hooksecurefunc(textFrame, "SetAlpha", SecureAlphaHook)
+                    HookedFrames[textFrame] = true
+                end
+                if UIFrameFadeRemoveFrame then UIFrameFadeRemoveFrame(textFrame) end
+                textFrame:SetAlpha(textAlpha)
+            end 
         end
     end
 end
@@ -240,12 +297,10 @@ function SH:OnEnable()
     if not E.db.WishFlex.modules.smarthide then return end
     self:RegisterEvent("PLAYER_TARGET_CHANGED", "UpdateVisibility")
     self:RegisterEvent("PLAYER_REGEN_DISABLED", "UpdateVisibility")
-    
     self:RegisterEvent("PLAYER_REGEN_ENABLED", function() 
         self:UpdateVisibility() 
         C_Timer.After(5, function() collectgarbage("collect") end)
     end)
-    
     self:RegisterEvent("UPDATE_SHAPESHIFT_FORM", "UpdateVisibility")
     self:RegisterEvent("UNIT_PET", "UpdateVisibility") 
     self:RegisterEvent("UPDATE_VEHICLE_ACTIONBAR", "UpdateVisibility")
@@ -257,7 +312,7 @@ function SH:OnEnable()
     
     E:Delay(2, function()
         if UF and UF.PostUpdateVisibility then self:SecureHook(UF, "PostUpdateVisibility", "UpdateVisibility") end
-        local centers = {"EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "WishFlex_ActionTimer_Anchor", "WishFlex_CooldownRow2_Anchor", "WishFlex_DefensiveViewer"}
+        local centers = {"EssentialCooldownViewer", "UtilityCooldownViewer", "WishFlex_ActionTimer_Anchor", "WishFlex_CooldownRow2_Anchor"}
         for _, n in ipairs(centers) do
             local f = _G[n]
             if f then
@@ -271,7 +326,7 @@ function SH:OnEnable()
     local tickElapsed = 0
     tickerFrame:SetScript("OnUpdate", function(_, delta)
         tickElapsed = tickElapsed + delta
-        local interval = InCombatLockdown() and 0.5 or 1.0
+        local interval = InCombatLockdown() and 0.5 or 1.0 
         if tickElapsed >= interval then
             tickElapsed = 0
             SH:UpdateVisibility()

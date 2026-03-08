@@ -27,7 +27,8 @@ P["WishFlex"].cdManager = {
     glowButtonFrequency = 0,
     glowProcDuration = 1, glowProcXOffset = 0, glowProcYOffset = 0,
 
-    Utility = { attachToPlayer = false, attachX = 0, attachY = 1, width = 45, height = 30, iconGap = 2, growth = "CENTER", cdFontSize = 18, cdFontColor = DEFAULT_CD_COLOR, cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackXOffset = 12, stackYOffset = -12 },
+    -- [修改处] Utility.attachToPlayer = true (默认开启效能图标吸附玩家框体)
+    Utility = { attachToPlayer = true, attachX = 0, attachY = 1, width = 45, height = 30, iconGap = 2, growth = "CENTER", cdFontSize = 18, cdFontColor = DEFAULT_CD_COLOR, cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackXOffset = 12, stackYOffset = -12 },
     BuffBar = { width = 120, height = 30, iconGap = 2, growth = "DOWN", cdFontSize = 18, cdFontColor = DEFAULT_CD_COLOR, cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackXOffset = 12, stackYOffset = -12 },
     BuffIcon = { width = 45, height = 45, iconGap = 2, growth = "CENTER", cdFontSize = 18, cdFontColor = DEFAULT_CD_COLOR, cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackXOffset = 12, stackYOffset = -12 }, 
     Essential = { enableCustomLayout = true, injectActionTimer = false, maxPerRow = 7, iconGap = 2, 
@@ -128,7 +129,6 @@ local function GetEssentialGroup(dbKey, tabName, order)
             row2Size = { order = 5, type = "group", name = "第二行尺寸", guiInline = true, args = { row2Width = { order=1, type="range", name="宽度", min=10, max=100, step=1 }, row2Height = { order=2, type="range", name="高度", min=10, max=100, step=1 }, row2IconGap = { order=3, type="range", name="间距", min=0, max=20, step = 1 } } },
             row2CdText = { order = 6, type = "group", name = "第二行 冷却倒计时", guiInline = true, args = { row2CdFontSize = {order=1,type="range",name="大小",min=4,max=40,step=1}, row2CdFontColor = {order=2,type="color",name="颜色",get=function() local t=E.db.WishFlex.cdManager.Essential.row2CdFontColor; return t and t.r or 1, t and t.g or 0.82, t and t.b or 0 end, set=function(_,r,g,b) E.db.WishFlex.cdManager.Essential.row2CdFontColor={r=r,g=g,b=b} end}, row2CdXOffset = {order=3,type="range",name="X偏移",min=-50,max=50,step=1}, row2CdYOffset = {order=4,type="range",name="Y偏移",min=-50,max=50,step=1} } },
             row2StackText = { order = 7, type = "group", name = "第二行 层数文本", guiInline = true, args = { row2StackFontSize = {order=1,type="range",name="大小",min=4,max=40,step=1}, row2StackFontColor = {order=2,type="color",name="颜色",get=function() local t=E.db.WishFlex.cdManager.Essential.row2StackFontColor; return t and t.r or 1, t and t.g or 1, t and t.b or 1 end, set=function(_,r,g,b) E.db.WishFlex.cdManager.Essential.row2StackFontColor={r=r,g=g,b=b} end}, row2StackXOffset = {order=3,type="range",name="X偏移",min=-50,max=50,step=1}, row2StackYOffset = {order=4,type="range",name="Y偏移",min=-50,max=50,step=1} } }
-            -- 发光组(glowGrp1) 已移至 全局与外观
         }
     }
 end
@@ -163,7 +163,6 @@ local function InjectOptions()
             activeAuraColor = { order = 6, type = "color", name = "BUFF激活遮罩颜色", hasAlpha = true, get = function() local t = E.db.WishFlex.cdManager.activeAuraColor or DEFAULT_ACTIVE_AURA_COLOR return t.r, t.g, t.b, t.a end, set = function(_, r, g, b, a) E.db.WishFlex.cdManager.activeAuraColor = {r=r,g=g,b=b,a=a}; mod:TriggerLayout() end },
             reverseSwipe = { order = 7, type = "toggle", name = "反向遮罩(亮变黑)", get = function() return E.db.WishFlex.cdManager.reverseSwipe end, set = function(_, v) E.db.WishFlex.cdManager.reverseSwipe = v; mod:TriggerLayout() end },
             
-            -- [新增] 移植整合的全局重要技能发光设置
             glowGroup = {
                 order = 10, type = "group", name = "重要技能高亮发光设置", guiInline = true,
                 get = function(info) return E.db.WishFlex.cdManager[info[#info]] end,
@@ -177,22 +176,18 @@ local function InjectOptions()
                         set = function(_, r, g, b, a) E.db.WishFlex.cdManager.glowColor = {r=r,g=g,b=b,a=a}; mod:TriggerLayout() end,
                         disabled = function() return not E.db.WishFlex.cdManager.glowUseCustomColor end 
                     },
-                    -- 像素发光参数
                     glowPixelLines = { order = 10, type = "range", name = "线条数", min = 1, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "pixel" end },
                     glowPixelFrequency = { order = 11, type = "range", name = "频率", min = -2, max = 2, step = 0.05, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "pixel" end },
                     glowPixelLength = { order = 12, type = "range", name = "长度(0为自动)", min = 0, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "pixel" end },
                     glowPixelThickness = { order = 13, type = "range", name = "粗细", min = 1, max = 10, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "pixel" end },
                     glowPixelXOffset = { order = 14, type = "range", name = "X轴偏移", min = -20, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "pixel" end },
                     glowPixelYOffset = { order = 15, type = "range", name = "Y轴偏移", min = -20, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "pixel" end },
-                    -- 自动施法参数
                     glowAutocastParticles = { order = 20, type = "range", name = "粒子数", min = 1, max = 16, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "autocast" end },
                     glowAutocastFrequency = { order = 21, type = "range", name = "频率", min = -2, max = 2, step = 0.05, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "autocast" end },
                     glowAutocastScale = { order = 22, type = "range", name = "缩放", min = 0.5, max = 3, step = 0.05, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "autocast" end },
                     glowAutocastXOffset = { order = 23, type = "range", name = "X轴偏移", min = -20, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "autocast" end },
                     glowAutocastYOffset = { order = 24, type = "range", name = "Y轴偏移", min = -20, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "autocast" end },
-                    -- 按钮发光参数
                     glowButtonFrequency = { order = 30, type = "range", name = "频率(0为默认)", min = 0, max = 2, step = 0.05, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "button" end },
-                    -- 触发发光参数
                     glowProcDuration = { order = 40, type = "range", name = "持续时间", min = 0.1, max = 5, step = 0.1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "proc" end },
                     glowProcXOffset = { order = 41, type = "range", name = "X轴偏移", min = -20, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "proc" end },
                     glowProcYOffset = { order = 42, type = "range", name = "Y轴偏移", min = -20, max = 20, step = 1, hidden = function() return E.db.WishFlex.cdManager.glowType ~= "proc" end },
@@ -615,10 +610,12 @@ function mod:Initialize()
     InjectOptions(); if not E.db.WishFlex.modules.cooldownCustom then return end
     
     if not _G.WishFlex_CooldownRow2_Anchor then _G.WishFlex_CooldownRow2_Anchor = CreateFrame("Frame", "WishFlex_CooldownRow2_Anchor", E.UIParent) end
+    
+    -- [修改处] 默认锚点调整：效能技能保持原样；第二行对齐第一行向下2像素；增益图标对齐第一行向上30像素
     SafeMover(_G.UtilityCooldownViewer, "WishFlexUtilityMover", "WishFlex: 效能技能", {"CENTER", E.UIParent, "CENTER", 0, -100})
     SafeMover(_G.EssentialCooldownViewer, "WishFlexEssentialMover", "WishFlex: 重要技能(第一行)", {"CENTER", E.UIParent, "CENTER", 0, 50})
-    SafeMover(_G.WishFlex_CooldownRow2_Anchor, "WishFlexEssentialRow2Mover", "WishFlex: 重要技能(第二行)", {"CENTER", E.UIParent, "CENTER", 0, -50})
-    SafeMover(_G.BuffIconCooldownViewer, "WishFlexBuffIconMover", "WishFlex: 增益图标", {"CENTER", E.UIParent, "CENTER", 0, 150})
+    SafeMover(_G.WishFlex_CooldownRow2_Anchor, "WishFlexEssentialRow2Mover", "WishFlex: 重要技能(第二行)", {"TOP", _G.EssentialCooldownViewer, "BOTTOM", 0, -2})
+    SafeMover(_G.BuffIconCooldownViewer, "WishFlexBuffIconMover", "WishFlex: 增益图标", {"BOTTOM", _G.EssentialCooldownViewer, "TOP", 0, 30})
     SafeMover(_G.BuffBarCooldownViewer, "WishFlexBuffBarMover", "WishFlex: 增益条", {"CENTER", E.UIParent, "CENTER", 0, 100})
 
     -- [核心更新] 拦截并应用四种高级发光模式
