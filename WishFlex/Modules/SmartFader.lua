@@ -33,6 +33,29 @@ local function SecureAlphaHook(frame, alpha)
     end
 end
 
+-- 【极致内存优化】：使用函数调用取代原本的临时 Table 分配
+local function UpdateHostAlpha(host, alpha)
+    if host then
+        if alpha == 0 then
+            host:SetAlpha(0)
+            host:Hide()
+        else
+            host:SetAlpha(1)
+            host:Show()
+        end
+    end
+end
+
+local function SyncGlowState(f, alpha)
+    if type(f) ~= "table" then return end
+    UpdateHostAlpha(f.cdmGlowHost, alpha)
+    UpdateHostAlpha(f.wfGlowHost, alpha)
+    if f.Icon and type(f.Icon) == "table" then
+        UpdateHostAlpha(f.Icon.cdmGlowHost, alpha)
+        UpdateHostAlpha(f.Icon.wfGlowHost, alpha)
+    end
+end
+
 local function SetFrameAlphaImmediate(frame, targetAlpha)
     if not frame or type(frame) ~= "table" or not frame.SetAlpha then return end
     if frame.SmartHideTargetAlpha == targetAlpha then return end
@@ -44,12 +67,21 @@ local function SetFrameAlphaImmediate(frame, targetAlpha)
         HookedFrames[frame] = true
     end
 
-    -- 停止可能存在的原生渐变
     if UIFrameFadeRemoveFrame then UIFrameFadeRemoveFrame(frame) end
     if frame.wfFadeGroup then frame.wfFadeGroup:Stop() end
     
-    -- 瞬间赋值，拒绝闪烁
     frame:SetAlpha(targetAlpha)
+    SyncGlowState(frame, targetAlpha)
+    
+    if frame.itemFramePool and type(frame.itemFramePool.EnumerateActive) == "function" then
+        for child in frame.itemFramePool:EnumerateActive() do
+            SyncGlowState(child, targetAlpha)
+        end
+    elseif frame.activeBars and type(frame.activeBars) == "table" then
+        for _, child in pairs(frame.activeBars) do
+            SyncGlowState(child, targetAlpha)
+        end
+    end
 end
 
 
@@ -75,33 +107,39 @@ local function GetTargetAlpha(db)
     return 1
 end
 
+local function ProcessCategory(catDB, catName, inEditMode)
+    if not catDB or type(catDB) ~= "table" then return end
+    
+    if catDB.visibility == nil then 
+        catDB.visibility = { enable = false, hideOOC = true, dragonriding = false, friendly = false, vehicle = false } 
+    end
+    
+    local targetAlpha = 1
+    if not inEditMode then targetAlpha = GetTargetAlpha(catDB.visibility) end
+    local frame = GetFrameByCat(catName)
+    if frame then SetFrameAlphaImmediate(frame, targetAlpha) end
+    local proxyFrame = _G[catName .. "CooldownViewer"]
+    if proxyFrame and proxyFrame ~= frame then
+        SetFrameAlphaImmediate(proxyFrame, targetAlpha)
+    end
+end
+
+local MONITOR_FRAMES = { "WishFlex_ExtraMonitor", "ExtraMonitorCooldownViewer", "WishFlex_ExtraMonitorCooldownViewer" }
+local EM_VIS_CACHE = { enable = false, hideOOC = true, dragonriding = false, friendly = false, vehicle = false }
+local EMPTY_TABLE = {}
+
 function Fader:UpdateVisibility()
     local inEditMode = WF.MoversUnlocked or (WF.MainFrame and WF.MainFrame:IsShown())
     
-    local function ProcessCategory(catDB, catName)
-        if not catDB or type(catDB) ~= "table" then return end
-        
-        if catDB.visibility == nil then catDB.visibility = { enable = false, hideOOC = true, dragonriding = false, friendly = false, vehicle = false } end
-        
-        local targetAlpha = 1
-        if not inEditMode then targetAlpha = GetTargetAlpha(catDB.visibility) end
-        local frame = GetFrameByCat(catName)
-        if frame then SetFrameAlphaImmediate(frame, targetAlpha) end
-        local proxyFrame = _G[catName .. "CooldownViewer"]
-        if proxyFrame and proxyFrame ~= frame then
-            SetFrameAlphaImmediate(proxyFrame, targetAlpha)
-        end
-    end
-
     local cdDB = WF.db.cooldownCustom
     if cdDB then
-        ProcessCategory(cdDB.Essential, "Essential")
-        ProcessCategory(cdDB.Utility, "Utility")
-        ProcessCategory(cdDB.Defensive, "Defensive")
-        ProcessCategory(cdDB.BuffIcon, "BuffIcon")
-        ProcessCategory(cdDB.BuffBar, "BuffBar")
-        if cdDB.CustomRows then for _, cat in ipairs(cdDB.CustomRows) do ProcessCategory(cdDB[cat], cat) end end
-        if cdDB.CustomBuffRows then for _, cat in ipairs(cdDB.CustomBuffRows) do ProcessCategory(cdDB[cat], cat) end end
+        ProcessCategory(cdDB.Essential, "Essential", inEditMode)
+        ProcessCategory(cdDB.Utility, "Utility", inEditMode)
+        ProcessCategory(cdDB.Defensive, "Defensive", inEditMode)
+        ProcessCategory(cdDB.BuffIcon, "BuffIcon", inEditMode)
+        ProcessCategory(cdDB.BuffBar, "BuffBar", inEditMode)
+        if cdDB.CustomRows then for _, cat in ipairs(cdDB.CustomRows) do ProcessCategory(cdDB[cat], cat, inEditMode) end end
+        if cdDB.CustomBuffRows then for _, cat in ipairs(cdDB.CustomBuffRows) do ProcessCategory(cdDB[cat], cat, inEditMode) end end
     end
 
     local crAPI = WF.ClassResourceAPI
@@ -109,43 +147,39 @@ function Fader:UpdateVisibility()
         local specID = crAPI.GetCurrentContextID()
         local specCfg = crAPI.GetCurrentSpecConfig(specID)
         if specCfg then
-            ProcessCategory(specCfg.power, "power")
-            ProcessCategory(specCfg.class, "class")
-            ProcessCategory(specCfg.mana, "mana")
+            ProcessCategory(specCfg.power, "power", inEditMode)
+            ProcessCategory(specCfg.class, "class", inEditMode)
+            ProcessCategory(specCfg.mana, "mana", inEditMode)
         end
         local crDB = crAPI.GetDB()
         if crDB then
-            ProcessCategory(crDB.vigor, "vigor")
-            ProcessCategory(crDB.whirling, "whirling")
+            ProcessCategory(crDB.vigor, "vigor", inEditMode)
+            ProcessCategory(crDB.whirling, "whirling", inEditMode)
         end
     end
 
-
     local emDB = WF.db.extraMonitor
-    local emVis = { enable = false, hideOOC = true, dragonriding = false, friendly = false, vehicle = false }
+    EM_VIS_CACHE.enable, EM_VIS_CACHE.hideOOC, EM_VIS_CACHE.dragonriding, EM_VIS_CACHE.friendly, EM_VIS_CACHE.vehicle = false, true, false, false, false
     
     if cdDB and cdDB.ExtraMonitor and cdDB.ExtraMonitor.visibility and cdDB.ExtraMonitor.visibility.enable then
-        for k, v in pairs(cdDB.ExtraMonitor.visibility) do emVis[k] = v end
+        for k, v in pairs(cdDB.ExtraMonitor.visibility) do EM_VIS_CACHE[k] = v end
     elseif emDB and emDB.visibility and emDB.visibility.enable then
-        for k, v in pairs(emDB.visibility) do emVis[k] = v end
+        for k, v in pairs(emDB.visibility) do EM_VIS_CACHE[k] = v end
     end
     
     local targetAlpha = 1
-    if not inEditMode then targetAlpha = GetTargetAlpha(emVis) end
+    if not inEditMode then targetAlpha = GetTargetAlpha(EM_VIS_CACHE) end
     
-    local frames = { "WishFlex_ExtraMonitor", "ExtraMonitorCooldownViewer", "WishFlex_ExtraMonitorCooldownViewer" }
-    for _, name in ipairs(frames) do
+    for _, name in ipairs(MONITOR_FRAMES) do
         if _G[name] then SetFrameAlphaImmediate(_G[name], targetAlpha) end
     end
     
-
-    local emFrames = (WF.ExtraMonitorAPI and WF.ExtraMonitorAPI.FramePool) or (WF.ExtraMonitorAPI and WF.ExtraMonitorAPI.pool) or {}
+    local emFrames = (WF.ExtraMonitorAPI and WF.ExtraMonitorAPI.FramePool) or (WF.ExtraMonitorAPI and WF.ExtraMonitorAPI.pool) or EMPTY_TABLE
     for _, btn in pairs(emFrames) do
-        if not btn.isCrossGrouped then
+        if type(btn) == "table" and not btn.isCrossGrouped then
             SetFrameAlphaImmediate(btn, targetAlpha)
         end
     end
-
 
     local wmDB = WF.db.wishMonitor
     if wmDB and crAPI and crAPI.ActiveMonitorFrames then
@@ -154,9 +188,9 @@ function Fader:UpdateVisibility()
             local cfg = (wmDB.skills and wmDB.skills[spellIDStr]) or (wmDB.buffs and wmDB.buffs[spellIDStr])
             if cfg then
                 if cfg.visibility == nil then cfg.visibility = { enable = false, hideOOC = true, dragonriding = false, friendly = false, vehicle = false } end
-                local targetAlpha = 1
-                if not inEditMode then targetAlpha = GetTargetAlpha(cfg.visibility) end
-                SetFrameAlphaImmediate(f, targetAlpha)
+                local tAlpha = 1
+                if not inEditMode then tAlpha = GetTargetAlpha(cfg.visibility) end
+                SetFrameAlphaImmediate(f, tAlpha)
             end
         end
     end
@@ -164,9 +198,9 @@ end
 
 Fader:RegisterEvent("PLAYER_REGEN_DISABLED")
 Fader:RegisterEvent("PLAYER_REGEN_ENABLED")
+Fader:RegisterEvent("PLAYER_TARGET_CHANGED") 
 Fader:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
 Fader:RegisterEvent("UNIT_PET")
-
 
 Fader:RegisterEvent("UPDATE_VEHICLE_ACTIONBAR")
 Fader:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
@@ -183,7 +217,7 @@ end)
 local tickElapsed = 0
 Fader:SetScript("OnUpdate", function(_, delta)
     tickElapsed = tickElapsed + delta
-    if tickElapsed >= 1.0 then
+    if tickElapsed >= 0.3 then 
         tickElapsed = 0
         Fader:UpdateVisibility()
     end
@@ -193,6 +227,19 @@ C_Timer.After(2, function()
     if WF.ClassResourceAPI and WF.ClassResourceAPI.RenderMonitors then
         hooksecurefunc(WF.ClassResourceAPI, "RenderMonitors", function()
             Fader:UpdateVisibility()
+        end)
+    end
+    
+    if WF.GlowAPI and type(WF.GlowAPI.Show) == "function" then
+        hooksecurefunc(WF.GlowAPI, "Show", function(self, frame)
+            if not frame then return end
+            if frame:GetEffectiveAlpha() == 0 or frame.SmartHideTargetAlpha == 0 then
+                local host = frame.cdmGlowHost or (frame.Icon and type(frame.Icon) == "table" and frame.Icon.cdmGlowHost)
+                if host then
+                    host:SetAlpha(0)
+                    host:Hide()
+                end
+            end
         end)
     end
 end)

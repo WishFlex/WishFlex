@@ -227,7 +227,6 @@ local function ApplyCustomGlowToFrame(frame, glowKey)
     local rectX, rectY, rectW, rectH = target:GetRect()
     
     -- 【核心修复：防小光点】使用 GetRect 抓取屏幕真实的物理渲染尺寸。
-    -- 如果刚/reload导致画面还没刷出来（尺寸极小），强制要求高亮库延时重试，直到图标真正在屏幕上撑开为止。
     if not rectW or not rectH or rectW < 10 or rectH < 10 then
         frame._agRetries = (frame._agRetries or 0) + 1
         if frame._agRetries < 30 then 
@@ -367,10 +366,12 @@ local function SyncTextAndVisuals(frame, overrideCfg)
     end
 end
 
+-- 【核心修复：遮罩图标根据底图透明度隐藏】
 local function OverlayOnUpdate(self) 
     if self.sourceFrame then
-        if self.sourceFrame:IsShown() and self.sourceFrame:GetCenter() then
-            self:SetAlpha(1)
+        local targetAlpha = self.sourceFrame.SmartHideTargetAlpha or self.sourceFrame:GetEffectiveAlpha() or 1
+        if self.sourceFrame:IsShown() and targetAlpha > 0 and self.sourceFrame:GetCenter() then
+            self:SetAlpha(targetAlpha)
             SnapOverlayToFrame(self, self.sourceFrame)
             SyncTextAndVisuals(self)
         else
@@ -381,7 +382,24 @@ local function OverlayOnUpdate(self)
     end 
 end
 
-local function IndependentOnUpdate(self) SyncTextAndVisuals(self) end
+-- 【核心修复：独立图标兼容脱战隐藏设置】
+local function IndependentOnUpdate(self) 
+    local targetAlpha = 1
+    if WF.SmartFader then
+        local inEditMode = WF.MoversUnlocked or (WF.MainFrame and WF.MainFrame:IsShown())
+        if not inEditMode then
+            local inCombat = InCombatLockdown()
+            local hasTarget = UnitExists("target")
+            if hasTarget then hasTarget = UnitCanAttack("player", "target") or UnitIsPlayer("target") end
+            if not inCombat and not hasTarget then targetAlpha = 0 end
+        end
+    end
+    
+    self:SetAlpha(targetAlpha)
+    if targetAlpha > 0 then 
+        SyncTextAndVisuals(self) 
+    end 
+end
 
 local function CreateBaseFrame(spellID, isIndependent)
     local frame = CreateFrame("Frame", nil, UIParent, isIndependent and "BackdropTemplate" or nil)
