@@ -1,0 +1,38 @@
+## Interface: 120001
+## Title: |cff00ffccW|cff00f8cci|cff00f1ccs|cff00ebcch|cff00e4ccF|cff00ddaal|cff00d6aae|cff00cfaax|r
+## Notes: WishFlex 独立界面增强核心插件
+## Notes-zhCN: WishFlex 独立界面增强核心插件
+## Author: Wish
+## Version: 3.0
+## IconTexture: Interface\AddOns\WishFlex\Media\Textures\Logo2.tga
+## SavedVariables: WishFlexDB
+## OptionalDeps: LibCustomGlow-1.0, LibSharedMedia-3.0, SharedMedia
+## Category: Wish
+## Category-enUS: Wish
+## Category-zhCN: Wish
+
+Libs\index.xml
+Locales\enUS.lua
+Locales\zhCN.lua
+
+Core.lua
+Setup.lua
+Presets.lua
+Data\RacialData.lua
+
+Engine\GlowEngine.lua
+Engine\BarEngine.lua
+Engine\StateManager.lua
+Engine\SandboxEngine.lua
+Modules\SmartFader.lua
+Modules\ExtraMonitor.lua
+Modules\CooldownCustom.lua
+Modules\CooldownCustom_Style.lua
+Modules\ClassResource.lua
+Modules\ClassResource_Style.lua
+Modules\Home.lua
+Modules\WishMonitor.lua
+Modules\CooldownTracker.lua
+Modules\AuraGlow.lua
+Modules\Glow.lua
+Modules\CooldownDefensive.lua

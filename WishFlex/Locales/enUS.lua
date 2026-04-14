@@ -1,0 +1,297 @@
+local AddonName, ns = ...
+ns.L = ns.L or {}
+local L = ns.L
+
+-- ============================================================================
+-- Menu
+-- ============================================================================
+L["WishFlex Settings"] = "WishFlex Settings"
+L["Settings Console"] = "Settings Console"
+L["Combat"] = "Combat"
+L["Cooldown Manager"] = "Cooldown Manager"
+L["Class Resource"] = "Class Resource"
+L["Action Button Glow"] = "Action Button Glow"
+
+-- ============================================================================
+-- Sub Menu & Required Titles
+-- ============================================================================
+L["Global Settings"] = "Global Settings"
+L["Core Glow"] = "Core Glow"
+L["Essential Skills"] = "Essential Skills"
+L["Utility Skills"] = "Utility Skills"
+L["Buff Icons"] = "Buff Icons"
+L["Buff Bars"] = "Buff Bars"
+L["Icon Desaturation"] = "Icon Desaturation"
+L["Home"] = "Home"
+L["MENU"] = "MENU"
+L["Reload UI"] = "Reload UI"
+L["Author"] = "Development & Maintenance"
+-- Power Types
+L["All Types"] = "All Types (Default)"
+L["Mana"] = "Mana"
+L["Rage"] = "Rage"
+L["Focus"] = "Focus"
+L["Energy"] = "Energy"
+L["Runic Power"] = "Runic Power"
+L["Astral Power"] = "Astral Power"
+L["Maelstrom"] = "Maelstrom"
+L["Insanity"] = "Insanity"
+L["Fury"] = "Fury"
+L["Essence"] = "Essence"
+-- ============================================================================
+-- Additions: Class Resource & Independent Layout Settings
+-- ============================================================================
+L["No Spec / General"] = "No Spec / General"
+L["Enable Independent Texture"] = "Enable Independent Texture"
+L["Enable Independent Color"] = "Enable Independent Color"
+L["Enable Independent Background Texture"] = "Enable Independent Background Texture"
+L["Independent Background Texture"] = "Independent Background Texture"
+L["Enable Independent Background Color"] = "Enable Independent Background Color"
+L["Applicable Power Type"] = "Applicable Power Type"
+L["Custom Monitor"] = "Custom Monitor"
+-- ============================================================================
+-- Home Page Texts (Added)
+-- ============================================================================
+L["WishFlex GeniSys"] = "WishFlex GeniSys"
+L["Home Intro Desc"] = "A lightweight, limitless optimization suite for elite performance and layout."
+
+L["GuideTitle1"] = "Sandbox Layout"
+L["GuideBody1"] = "Click the gear icon at the top to unlock all frames.\nDrag and drop for visual layout optimization."
+L["GuideTitle2"] = "Minimalist Control"
+L["GuideBody2"] = "No need for complex menus in Sandbox mode.\nSimply [Left/Right Click] icons to toggle settings."
+L["GuideTitle3"] = "Smart Hide"
+L["GuideBody3"] = "Click [Visibility Settings] in the right-click menu\nto enable out-of-combat or conditional fading."
+L["GuideTitle4"] = "Glow Customization"
+L["GuideBody4"] = "Enter [Detailed Glow Settings] via right-click menu.\nSupports native highlight override and custom effects."
+
+-- ============================================================================
+-- UI & Core General & Tooltips
+-- ============================================================================
+L["One or more settings require a UI reload to take effect."] = "One or more settings require a UI reload (RL) to take effect."
+L["Apply Class Color"] = "Apply Class Color"
+L["Entering Edit Mode"] = "Entering Blizzard Edit Mode..."
+L["Edit Mode not available."] = "Edit Mode is not available."
+L["Open Settings Panel"] = "Open Settings Console"
+
+-- ============================================================================
+-- Import/Export Profile System
+-- ============================================================================
+L["Profile"] = "Profile"
+L["Profile Management"] = "Profile Management"
+L["Profile Management Title"] = "|cff00ffcc[0]|r Profiles Management"
+L["Select and Apply Profile:"] = "Select and Apply Profile:"
+L["New/Copy Current Profile:"] = "New/Copy Current Profile:"
+L["Create"] = "Create"
+L["Profile name invalid or already exists!"] = "|cffff0000[WishFlex]|r Profile name invalid or already exists!"
+L["Spec Auto-Load Binding"] = "Spec Auto-Load Binding"
+L["None"] = "None"
+L[" Auto-Load:"] = " Auto-Load:"
+L["Missing dependencies LibSerialize or LibDeflate."] = "|cffff0000[Error]|r Missing dependencies LibSerialize or LibDeflate."
+L["Export Profile"] = "|cff00ffcc[1]|r Export Profile"
+L["Import Profile"] = "|cffffaa00[2]|r Import Profile"
+L["Export All (Recommended)"] = "Export All (Recommended)"
+L["Cooldown Manager (CD)"] = "Cooldown Manager (CD)"
+L["Class Resource (CR)"] = "Class Resource (CR)"
+L["Generate Export Code"] = "Generate Export Code"
+L["Export string generated successfully."] = "|cff00ffcc[WishFlex]|r Export string generated! Press Ctrl+C to copy."
+L["Clear Input"] = "Clear Input"
+L["Paste your WishFlex profile code below:"] = "Paste your WishFlex profile code below:"
+L["Parse and Import"] = "Parse and Import"
+L["Import failed: Invalid format."] = "|cffff0000[WishFlex]|r Import failed: Invalid format."
+L["Import failed: Cannot decode."] = "|cffff0000[WishFlex]|r Import failed: Cannot decode."
+L["Import failed: Cannot decompress."] = "|cffff0000[WishFlex]|r Import failed: Cannot decompress."
+L["Import failed: Data corrupted."] = "|cffff0000[WishFlex]|r Import failed: Data corrupted."
+L["Successfully imported "] = "|cff00ff00[WishFlex]|r Successfully imported ["
+L[" profile! Reloading..."] = "] profile! Reloading..."
+L["Profile Desc"] = "Backup or share your exclusive configurations here. You can choose to export specific modules or the entire addon settings.\nPaste a string below and click Import, the system will automatically merge the settings and reload the UI."
+L["Open Blizzard CD Settings"] = "Open Blizzard Cooldown Settings (/cds)"
+
+-- ============================================================================
+-- Standardized Terminology
+-- ============================================================================
+L["Enable"] = "Enable"
+L["Disable"] = "Disable"
+L["Enable Module"] = "Enable Module"
+L["Width"] = "Width"
+L["Height"] = "Height"
+L["Texture"] = "Texture"
+L["Font"] = "Font"
+L["Color"] = "Color"
+L["Background Color"] = "Background Color"
+L["Font Size"] = "Font Size"
+L["Text Color"] = "Text Color"
+L["X Offset"] = "X Offset"
+L["Y Offset"] = "Y Offset"
+L["Anchor"] = "Anchor"
+L["Stack Spacing"] = "Stack Spacing"
+L["Attach to Cooldowns"] = "Attach to Cooldowns"
+L["Attach Y Offset"] = "Attach Y Offset"
+L["Width Compensation"] = "Width Compensation"
+L["Independent Layout"] = "Independent Layout"
+L["Independent Texture"] = "Independent Texture"
+L["Independent Background Color"] = "Independent Background Color"
+L["Icon Gap"] = "Icon Gap"
+L["Max Per Row"] = "Max Per Row"
+L["Attach To Player"] = "Attach To Player"
+L["Total Width"] = "Total Width"
+
+-- ============================================================================
+-- Master Toggles and Warnings
+-- ============================================================================
+L["Disable CD & EM"] = "|cffff5555Disable CD & EM|r"
+L["Enable CD & EM"] = "|cff55ff55Enable CD & EM|r"
+L["CD System Disabled Msg"] = "CD Manager & Extra Monitor completely disabled\n\n- Core hooks and engine events are disconnected.\n- Memory and render loops are fully released.\n- Layout sandbox and extra options are hidden.\n\nClick [Enable] above and reload UI to restore."
+L["Disable CR & Monitor"] = "|cffff5555Disable CR & Monitor|r"
+L["Enable CR & Monitor"] = "|cff55ff55Enable CR & Monitor|r"
+L["CR System Disabled Msg"] = "Class Resource & Monitor completely disabled \n\n- Core render calculations are fully blocked.\n- All frames and textures are hidden/cleared from memory.\n- Layout sandbox panel is hidden.\n\nClick [Enable] above and reload UI to restore."
+
+-- ============================================================================
+-- Sandbox Operation Guides
+-- ============================================================================
+L["Refresh Sandbox / Fetch Data"] = "Refresh Sandbox / Fetch Data"
+L["Operation Guide"] = "Operation Guide"
+L["Sandbox Operation Guide"] = "[Sandbox Operation Guide]"
+L["Left Click"] = "Left Click"
+L["Right Click"] = "Right Click"
+L["Drag"] = "Drag"
+L["Click group background or icon to setup layout"] = "Click group BG or icon to setup layout"
+L["Click number text to adjust font and offset"] = "Click number text to adjust font/offset"
+L["Click icon to open toggle and style menu"] = "Click icon to open toggle & style menu"
+L["Hold left click to reorder icons within same group type"] = "Hold & drag icon to reorder within same group"
+L["Click bar or placeholder to setup size"] = "Click bar/placeholder to setup size"
+L["Click text to setup text layout"] = "Click text to setup text layout"
+L["Hold bar to reorder"] = "Hold & drag bar to reorder"
+L["Click bar or placeholder to open quick toggle menu"] = "Click bar to open quick toggle menu"
+L["Edit text layout"] = "Edit specific text layout"
+
+-- ============================================================================
+-- Custom Groups & Misc
+-- ============================================================================
+L["Extra Monitor (Item/Racial)"] = "Extra Monitor (Item/Racial)"
+L["Custom Buff Group "] = "Custom Buff Group "
+L["Custom Skill Group "] = "Custom Skill Group "
+L["Click to setup or drag icon here (Empty)"] = "Click to setup or drag icon here (Empty)"
+L["(Currently Disabled)"] = "(Currently Disabled)"
+L["Add Custom Skill Group"] = "Add Custom Skill Group"
+L["Add Custom Buff Group"] = "Add Custom Buff Group"
+L["Sandbox"] = "Sandbox"
+
+-- ============================================================================
+-- Module: Class Resource
+-- ============================================================================
+L["Power Bar"] = "Power Bar"
+L["Class Resource Bar"] = "Class Resource Bar"
+L["Extra Mana Bar"] = "Extra Mana Bar"
+L["Vigor Bar"] = "Vigor Bar"
+L["Whirling Surge Bar"] = "Whirling Surge Bar"
+L["Global Layout & Settings"] = "Global Layout & Settings"
+L["Global Basic Layout"] = "Global Basic Layout"
+L["Enable Resource System"] = "Enable Resource System"
+L["Editing Context"] = "Editing Context"
+L["Layout & Size"] = "Layout & Size"
+L["Basic Appearance"] = "Basic Appearance"
+L["Text Style"] = "Text Style"
+L["Enable Main Text"] = "Enable Main Text"
+L["Main Text Anchor"] = "Main Text Anchor"
+L["Main Text X Offset"] = "Main Text X Offset"
+L["Main Text Y Offset"] = "Main Text Y Offset"
+L["Enable Timer Text"] = "Enable Timer Text"
+L["Timer Text Anchor"] = "Timer Text Anchor"
+L["Timer Text X Offset"] = "Timer Text X Offset"
+L["Timer Text Y Offset"] = "Timer Text Y Offset"
+L["Text Layout"] = "Text Layout"
+
+-- Threshold Colors & Lines
+L["Multi-stage Threshold Color"] = "Multi-stage Threshold Color"
+L["Enable Multi-stage Color"] = "Enable Multi-stage Color"
+L["Select Stage"] = "Select Stage"
+L["Stage 1"] = "Stage 1"
+L["Stage 2"] = "Stage 2"
+L["Stage 3"] = "Stage 3"
+L["Stage 4"] = "Stage 4"
+L["Stage 5"] = "Stage 5"
+L["Enable This Stage"] = "Enable This Stage"
+L["Trigger Value"] = "Trigger Value"
+L["Threshold Color"] = "Threshold Color"
+L["Threshold Lines"] = "Threshold Lines"
+L["Select Line"] = "Select Line"
+L["Thickness"] = "Thickness"
+
+-- Sandbox & Custom Monitor
+L["Monitor Management"] = "Monitor Management"
+L["Enable Monitor"] = "Enable Monitor"
+L["Disable Monitor"] = "Disable Monitor"
+L["Add Custom Monitor"] = "Add Custom Monitor"
+L["Monitor Type"] = "Monitor Type"
+L["Aura/Buff"] = "Aura/Buff"
+L["Spell/Skill"] = "Spell/Skill"
+L["Display Mode"] = "Display Mode"
+L["Status Bar"] = "Status Bar"
+L["Pure Text"] = "Pure Text"
+L["Skill Mechanism"] = "Skill Mechanism"
+L["Single Cooldown"] = "Single Cooldown"
+L["Multiple Charges"] = "Multiple Charges"
+L["Buff Mechanism"] = "Buff Mechanism"
+L["Duration"] = "Duration"
+L["Stacking"] = "Stacking"
+L["Max Stacks"] = "Max Stacks"
+L["Click to select target"] = "Click to select target:"
+L["No Data"] = "No Data Available"
+L["Confirm Add"] = "Confirm Add"
+
+-- Monitor Editing
+L["Bar Layout"] = "Bar Layout"
+L["Pure Text Layout"] = "Pure Text Layout"
+L["Visuals & Positioning"] = "Visuals & Positioning"
+L["Always Show Background"] = "Always Show Background"
+L["Reverse Fill"] = "Reverse Fill"
+L["Foreground Color"] = "Foreground Color"
+L["Enable Independent Background"] = "Enable Independent Background"
+L["Hide in Original UI"] = "Hide in Original UI"
+L["Timer Text Layout (No Stacks)"] = "Timer Text Layout (No Stacks)"
+L["Delete This Monitor"] = "Delete This Monitor"
+L["Monitor Not Found"] = "Monitor Not Found"
+
+-- Nine-Slice Anchors
+L["TOPLEFT"] = "Top Left"
+L["TOP"] = "Top"
+L["TOPRIGHT"] = "Top Right"
+L["LEFT"] = "Left"
+L["CENTER"] = "Center"
+L["RIGHT"] = "Right"
+L["BOTTOMLEFT"] = "Bottom Left"
+L["BOTTOM"] = "Bottom"
+L["BOTTOMRIGHT"] = "Bottom Right"
+
+-- Retained from CD/Glow
+L["Default Swipe Color"] = "Default Swipe Color"
+L["Active Swipe Color"] = "Active Swipe Color"
+L["Reverse Swipe"] = "Reverse Swipe"
+L["Enable Split Layout"] = "Enable Split Layout"
+L["Row Y Gap"] = "Row Y Gap"
+L["Row 1 Settings"] = "Row 1 Settings"
+L["Row 2 Settings"] = "Row 2 Settings"
+L["Stack Text"] = "Stack Text"
+L["CD Text"] = "CD Text"
+L["Glow Style"] = "Glow Style"
+L["Pixel"] = "Pixel Glow"
+L["Autocast"] = "Autocast Particles"
+L["Button"] = "Default Button Glow"
+L["Proc"] = "Proc Flash"
+L["Enable Custom Color"] = "Enable Custom Color"
+L["Lines"] = "Lines"
+L["Frequency"] = "Frequency"
+L["Length"] = "Length"
+L["Particles"] = "Particles"
+L["Scale"] = "Scale"
+L["Live Glow Sandbox Title"] = "|cff00ccff[Live Sandbox]|r Glow Preview"
+
+-- SmartHide (Visibility Settings)
+L["<- Back to Menu"] = "<- Back to Menu"
+L["Enable SmartHide"] = "Enable SmartHide"
+L["├ Hide Out of Combat"] = "  ├ Hide Out of Combat"
+L["├ Hide on Friendly"] = "  ├ Hide on Friendly Target"
+L["├ Hide Flying"] = "  ├ Hide while Dragonriding/Flying"
+L["└ Hide in Vehicle"] = "  └ Hide in Vehicle"
+L["Visibility Settings"] = "Visibility Settings"
+L["SmartHide Settings ->"] = "SmartHide Settings ->"
