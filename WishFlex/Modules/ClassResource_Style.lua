@@ -105,7 +105,6 @@ function CR:UpdateDividers(bar, maxVal)
     end
 end
 
--- 【完美重写】：让分割线引擎订阅底层的 OnSizeChanged 钩子，物理宽度怎么变，它就精准切分多少
 function CR:UpdateMonitorDividers(f, numMax, width)
     local parentFrame = f.chargeBar or f
     
@@ -161,8 +160,6 @@ function CR:UpdateMonitorDividers(f, numMax, width)
     for i = numMax, #f.dividers do 
         if f.dividers[i] then f.dividers[i]:Hide() end 
     end
-    
-    -- 手动激活一次布局
     local currentWidth = parentFrame:GetWidth() or width
     if currentWidth and currentWidth > 0 then
         f.dividerFrame:GetScript("OnSizeChanged")(f.dividerFrame, currentWidth)
@@ -251,7 +248,6 @@ function CR:CreateBarContainer(name, parent)
     local bar = _G[name] or CreateFrame("Frame", name, parent)
     if not bar.statusBar then
         local sb = CreateFrame("StatusBar", nil, bar)
-        -- 【边界内缩保护】
         sb:SetPoint("TOPLEFT", bar, "TOPLEFT", 1, -1)
         sb:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -1, 1)
         bar.statusBar = sb
@@ -360,8 +356,6 @@ function CR:PrepareMonitorStyle(f, wmDB, cfg, spellID)
     if spellInfo then visualConfig.iconID = spellInfo.iconID end
     
     if WF.BarEngine then WF.BarEngine:ApplyStyle(f, visualConfig) end
-    
-    -- 为自定义条额外施加【亚像素防溢出】保护
     if f.chargeBar then
         local fgTex = f.chargeBar:GetStatusBarTexture()
         if fgTex and fgTex.SetSnapToPixelGrid then

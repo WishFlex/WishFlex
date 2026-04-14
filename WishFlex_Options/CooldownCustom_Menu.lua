@@ -10,9 +10,7 @@ local _, playerClass = UnitClass("player")
 local ClassColor = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[playerClass] or {r=1, g=1, b=1}
 local CR, CG, CB = ClassColor.r, ClassColor.g, ClassColor.b
 
--- ==========================================
--- [ 确认框体注册 ]
--- ==========================================
+
 StaticPopupDialogs["WISHFLEX_RELOAD_CONFIRM"] = {
     text = "|cff00ffccWishFlex|r: " .. (L["Changing visibility of active buffs requires a UI Reload. Do it now?"] or "修改正在生效的增益显示状态需要重载界面，是否现在重载？"),
     button1 = ACCEPT,
@@ -24,9 +22,7 @@ StaticPopupDialogs["WISHFLEX_RELOAD_CONFIRM"] = {
     preferredIndex = 3,
 }
 
--- ==========================================
--- [ 辅助函数 ]
--- ==========================================
+
 local function GetDynamicGlowOptions(dbRef, isAuraGlow, titleStr, cb)
     local kType = isAuraGlow and "glowType" or "glowType"
     local kColor = isAuraGlow and "glowColor" or "color"
@@ -74,9 +70,7 @@ end
 local function IsBuffCat(c) return (c == "BuffIcon" or c == "BuffBar" or c == "ItemBuff" or (c and string.sub(c, 1, 13) == "CustomBuffRow")) end
 local function IsSkillCat(c) return (c == "Essential" or c == "Utility" or c == "Defensive" or (c and string.sub(c, 1, 9) == "CustomRow")) end
 
--- ==========================================
--- [ 右键菜单核心逻辑 ]
--- ==========================================
+
 function CDMod.Menu:ShowRightClickMenu(btn, spellID, spellName, catName, emData, refreshCallback, subMenu)
     if catName == "ItemBuff" then return end 
     
@@ -227,9 +221,7 @@ function CDMod.Menu:ShowRightClickMenu(btn, spellID, spellName, catName, emData,
     m:Show()
 end
 
--- ==========================================
--- [ 弹窗设置面板渲染 ]
--- ==========================================
+
 function CDMod.Menu:GetPopup()
     if not WF.UI.CDPopup then
         local popup = CreateFrame("Frame", "WishFlex_CDPopup", WF.MainFrame, "BackdropTemplate")
@@ -338,7 +330,7 @@ function CDMod.Menu:RenderPopupContent(popup, mode, target, db, handleCallback, 
                 { type = "slider", key = "barHeight", db = catDB, min = 2, max = 100, step = 1, text = L["Independent Bar Height"] or "增益条独立高度", callback = handleCallback } 
             } } }
         elseif target == "ItemBuff" then
-            -- 【新增】：加入快捷吸附开关
+
             rowOpts = { { type = "group", key = "sb_ItemBuff", text = L["Item/Potion Buff"] or "物品/药水持续时间", childs = {
                 { type = "toggle", key = "snapToBuffIcon", db = catDB, text = L["Snap to Buff Icon"] or "吸附到增益组上方", callback = handleCallback },
                 { type = "slider", key = "iconGap", db = catDB, min = 0, max = 50, step = 1, text = L["Gap"] or "间距", callback = handleCallback },

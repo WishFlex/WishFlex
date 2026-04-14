@@ -2,15 +2,12 @@ local AddonName, ns = ...
 local WF = ns.WF
 
 WF.StateEngine = {}
--- 【核心优化1】：精准控制事件锁，避免无意义的 UI 重绘
 WF.StateEngine.PendingEvents = { COOLDOWN = false, CHARGES = false, AURA = false }
 
 local TrackedSpells = {}      
 local CurrentStateCache = {}  
 WF.StateEngine.MaxChargeCache = {} 
 WF.StateEngine.ViewerCache = { SpellToCD = {}, ActiveBuffFrames = {}, ActiveSkillFrames = {} }
-
--- 【核心优化2】：精准触发锁，只更新该更新的模块
 local pendingAura = false
 local pendingCD = false
 local pendingViewer = false
@@ -290,10 +287,6 @@ end
 local function SafeHook(object, funcName, callback)
     if object and object[funcName] and type(object[funcName]) == "function" then hooksecurefunc(object, funcName, callback) end
 end
-
--- ============================================================================
--- 【安全光环嗅探器】：为 UNIT_AURA 添加对 11.0 内存加密(secret value)的拦截
--- ============================================================================
 WF:RegisterEvent("UNIT_AURA", function(e, unit, updateInfo) 
     if unit == "player" then 
         if not InCombatLockdown() and not UnitExists("target") and updateInfo then

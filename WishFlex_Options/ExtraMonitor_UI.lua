@@ -434,7 +434,6 @@ WF.UI:RegisterPanel("extraMonitor_Global", function(scrollChild, ColW)
         local popY = -10
         local popW = popup.scrollFrame:GetWidth() - 10
 
--- 新增：实时同步重绘沙盒与实体图标的函数
         local function LiveUpdateSize()
             EM:UpdateDisplay() -- 更新真实UI
             if previewBox and previewBox.pool then

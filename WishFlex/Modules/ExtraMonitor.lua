@@ -728,7 +728,6 @@ WF:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit, castGUID, spe
     if type(spellID) ~= "number" then return end
     
     for _, data in ipairs(ExtraMonitor.ActiveTrackers) do
-        -- 直接精准匹配，没有任何假名字判断
         if (data.useSpellID == spellID) or (data.id == spellID) then
             local bDur = SafeGetBuffDuration(data)
             if bDur then 

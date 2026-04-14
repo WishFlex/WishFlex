@@ -2,7 +2,6 @@ local AddonName, ns = ...
 local WF = _G.WishFlex or ns.WF
 WF.SandboxEngine = {}
 
--- 为任何传入的 Frame 容器注入“绿线插入拖拽”功能
 function WF.SandboxEngine:EnableDragAndDrop(container, itemPool, onDragStopCallback)
     if not container.dropIndicator then
         local ind = CreateFrame("Frame", nil, container, "BackdropTemplate")
@@ -80,7 +79,6 @@ function WF.SandboxEngine:EnableDragAndDrop(container, itemPool, onDragStopCallb
                 container.dropIndicator:Hide()
 
                 if self.dropTarget and onDragStopCallback then
-                    -- 触发回调，把拖拽双方的源数据传回去处理排序
                     onDragStopCallback(self.trackerData, self.dropTarget.trackerData, self.dropModeDir)
                 end
             end)

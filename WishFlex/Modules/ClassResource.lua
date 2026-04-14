@@ -34,10 +34,6 @@ local MONK_STAGGER_MED = {r=1, g=1, b=0}
 local MONK_STAGGER_HIGH = {r=1, g=0, b=0}
 
 CR.SPELL_CONSTANTS = { SKYRIDING_SURGE = 372608, VIGOR_RECOVERY_WIND = 425782, WHIRLING_SURGE = 361584 }
-
--- ==========================================
--- 【新增】：彻底解决飞行条 C_Spell 内存泄漏的缓存机制
--- ==========================================
 CR._vigorCache = { cc = 0, mc = 6, st = 0, dur = 0 }
 CR._windCache = 0
 CR._whirlingCache = { st = 0, dur = 0 }
@@ -298,9 +294,6 @@ function CR.SafeFormatNum(num)
     return tostring(num)
 end
 
--- ==========================================
--- 【重磅修复】：剔除 SetValue 时的闭包泄漏
--- ==========================================
 function CR.UpdateBarValueSafe(sb, rawCurr, rawMax)
     pcall(sb.SetMinMaxValues, sb, 0, rawMax)
     sb._targetValue = rawCurr
@@ -809,9 +802,6 @@ function CR:UpdateLayout()
     self.isRendering = false
 end
 
--- ==========================================
--- 【重磅修复】：只读取无污染的缓存数据来平滑计算
--- ==========================================
 function CR.GetVigorSmooth()
     local cc, mc = CR._vigorCache.cc, CR._vigorCache.mc
     local st, dur = CR._vigorCache.st, CR._vigorCache.dur
@@ -860,16 +850,12 @@ function CR:DynamicTick()
         local vColor = CR.GetSafeColor(specCfg.vigor, DEF_VIGOR_COLOR, false)
         CR.UpdateBarValueSafe(self.vigorBar.statusBar, rawCurr, rawMax); self.vigorBar.statusBar:SetStatusBarColor(vColor.r, vColor.g, vColor.b)
         if self.UpdateDividers then self:UpdateDividers(self.vigorBar, rawMax) end
-        
-        -- 读取缓存而不是去获取C_Spell
         local windCharges = CR._windCache
         if self.UpdateVigorPulse then self:UpdateVigorPulse(self.vigorBar, rawCurr, rawMax, windCharges) end
     end
 
     if (self.showWhirling or (isConfigOpen and CR.Sandbox and CR.Sandbox.popupTarget == "whirling")) and specCfg.whirling then
         local rawCurr, rawMax = 1, 1
-        
-        -- 读取缓存而不是去获取C_Spell
         local st, dur = CR._whirlingCache.st, CR._whirlingCache.dur
         if not CR.IsSecret(dur) and dur > 1.5 then
             rawMax = dur
@@ -1135,8 +1121,6 @@ local function InitClassResource()
         WF:RegisterEvent("PLAYER_TARGET_CHANGED", function() CR:WakeUp() end)
         WF:RegisterEvent("UNIT_POWER_UPDATE", function(e, unit) if unit == "player" then CR:WakeUp() end end)
         WF:RegisterEvent("UNIT_POWER_FREQUENT", function(e, unit) if unit == "player" then CR:WakeUp() end end)
-        
-        -- 【新增】将缓存更新挂载在冷却和充能事件上
         WF:RegisterEvent("SPELL_UPDATE_CHARGES", function() CR:UpdateFlightCaches(); CR:CheckVigorState(); CR:WakeUp() end)
         WF:RegisterEvent("SPELL_UPDATE_COOLDOWN", function() CR:UpdateFlightCaches(); CR:CheckVigorState(); CR:WakeUp() end)
         WF:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED", function() CR:TriggerVigorCheck(); CR:WakeUp() end)

@@ -8,8 +8,6 @@ local ActiveKeys = {}
 
 local DEFAULT_BG_COLOR = {r=0, g=0, b=0, a=0.5}
 local DEFAULT_BAR_COLOR = {r=0, g=0.8, b=1, a=1}
-
--- 【修复 BUG：获取真实的屏幕物理像素，防止缩放抗锯齿把边框“吞掉”】
 local function GetOnePixelSize()
     local screenHeight = select(2, GetPhysicalScreenSize())
     if not screenHeight or screenHeight == 0 then return 1 end
@@ -23,7 +21,7 @@ local function AddBoxBorder(target)
     border:SetAllPoints(); border:SetFrameLevel(target:GetFrameLevel() + 5)
     
     local function DrawLine(p1, p2, x, y, w, h)
-        local m = GetOnePixelSize() -- 使用精准的物理 1 像素
+        local m = GetOnePixelSize()
         local t = border:CreateTexture(nil, "OVERLAY")
         t:SetColorTexture(0, 0, 0, 1)
         t:SetPoint(p1, border, p1, x, y)

@@ -1,8 +1,4 @@
 local AddonName, ns = ...
-
--- ==========================================
--- [1. 创建核心框架对象]
--- ==========================================
 local WF = CreateFrame("Frame", "WishFlexCore")
 _G.WishFlex = WF
 ns.WF = WF 
@@ -12,9 +8,6 @@ WF.ModulesRegistry = {}
 ns.L = ns.L or {}
 WF.L = ns.L 
 
--- ==========================================
--- [性能基石]
--- ==========================================
 local tablePool = {}
 function WF:AcquireTable()
     local t = next(tablePool)
@@ -71,9 +64,6 @@ function WF:RegisterModule(key, name, initFunc)
     self.ModulesRegistry[key] = { name = name, Init = initFunc }
 end
 
--- ==========================================
--- [ 核心编辑模式与微调面板引擎 ]
--- ==========================================
 WF.Movers = {}
 WF.SelectedMover = nil
 WF.EditModeControlPanel = nil
@@ -719,12 +709,10 @@ local function InitializeAddon()
         if WF.db[key].enable then
             if type(data.Init) == "function" then
                 data.Init()
-                -- [修改] 移除了原有的单个模块加载 print 提示，避免刷屏
             end
         end
     end
     
-    -- [修改] 将原来的核心引擎长提示，替换为你要的极简提示
     print("|cff00ffcc[WishFlex]|r 已加载模块: 输入 /wf 打开设置，/wfmove 解锁锚点")
 
     if EditModeManagerFrame then

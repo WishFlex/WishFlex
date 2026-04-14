@@ -26,9 +26,6 @@ local function GetFrameByCat(cat)
     return f
 end
 
--- ==========================================
--- 纯净透明度防篡改 (完美还原逻辑，去除渐变动画)
--- ==========================================
 local HookedFrames = {}
 local function SecureAlphaHook(frame, alpha)
     if frame.SmartHideTargetAlpha == 0 and alpha ~= 0 then 
@@ -55,20 +52,12 @@ local function SetFrameAlphaImmediate(frame, targetAlpha)
     frame:SetAlpha(targetAlpha)
 end
 
--- ==========================================
--- 核心可见性判定逻辑
--- ==========================================
+
 local function GetTargetAlpha(db)
-    -- 1. 【核心修改】全局最高优先级拦截：载具和宠物对战
-    -- 无视用户是否在设置中开启了智能隐藏，只要处于这两种状态，所有被管理的框体强制透明！
     local inPetBattle = C_PetBattles and C_PetBattles.IsInBattle()
     local inVehicle = UnitInVehicle("player") or UnitHasVehicleUI("player")
     if inPetBattle or inVehicle then return 0 end
-
-    -- 2. 如果该模块未开启常规的“脱战隐藏/智能隐藏”功能，则默认显示
     if not db or not db.enable then return 1 end 
-    
-    -- 3. 细分的智能判定条件
     local inCombat = InCombatLockdown()
     local hasTarget = UnitExists("target")
     local isFlying = type(IsFlying) == "function" and IsFlying()
@@ -96,19 +85,14 @@ function Fader:UpdateVisibility()
         
         local targetAlpha = 1
         if not inEditMode then targetAlpha = GetTargetAlpha(catDB.visibility) end
-        
-        -- 1. 隐藏原生框体
         local frame = GetFrameByCat(catName)
         if frame then SetFrameAlphaImmediate(frame, targetAlpha) end
-        
-        -- 2. 如果冷却系统给它生成了同名的代理排版框体，同步拔管隐藏
         local proxyFrame = _G[catName .. "CooldownViewer"]
         if proxyFrame and proxyFrame ~= frame then
             SetFrameAlphaImmediate(proxyFrame, targetAlpha)
         end
     end
 
-    -- 1. 冷却排版组
     local cdDB = WF.db.cooldownCustom
     if cdDB then
         ProcessCategory(cdDB.Essential, "Essential")
@@ -120,7 +104,6 @@ function Fader:UpdateVisibility()
         if cdDB.CustomBuffRows then for _, cat in ipairs(cdDB.CustomBuffRows) do ProcessCategory(cdDB[cat], cat) end end
     end
 
-    -- 2. 职业资源条组
     local crAPI = WF.ClassResourceAPI
     if crAPI then
         local specID = crAPI.GetCurrentContextID()
@@ -137,7 +120,7 @@ function Fader:UpdateVisibility()
         end
     end
 
-    -- 3. 额外监控组 (终极拦截：无视父级断裂，直击图标)
+
     local emDB = WF.db.extraMonitor
     local emVis = { enable = false, hideOOC = true, dragonriding = false, friendly = false, vehicle = false }
     
@@ -155,7 +138,7 @@ function Fader:UpdateVisibility()
         if _G[name] then SetFrameAlphaImmediate(_G[name], targetAlpha) end
     end
     
-    -- 强行接管监控池里的具体图标
+
     local emFrames = (WF.ExtraMonitorAPI and WF.ExtraMonitorAPI.FramePool) or (WF.ExtraMonitorAPI and WF.ExtraMonitorAPI.pool) or {}
     for _, btn in pairs(emFrames) do
         if not btn.isCrossGrouped then
@@ -163,7 +146,7 @@ function Fader:UpdateVisibility()
         end
     end
 
-    -- 4. 自定义监控条组 (WishMonitor)
+
     local wmDB = WF.db.wishMonitor
     if wmDB and crAPI and crAPI.ActiveMonitorFrames then
         for _, f in ipairs(crAPI.ActiveMonitorFrames) do
@@ -179,22 +162,17 @@ function Fader:UpdateVisibility()
     end
 end
 
--- ==========================================
--- 引入原版事件监听机制
--- ==========================================
-Fader:RegisterEvent("PLAYER_TARGET_CHANGED")
 Fader:RegisterEvent("PLAYER_REGEN_DISABLED")
 Fader:RegisterEvent("PLAYER_REGEN_ENABLED")
 Fader:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
 Fader:RegisterEvent("UNIT_PET")
 
--- 载具事件
+
 Fader:RegisterEvent("UPDATE_VEHICLE_ACTIONBAR")
 Fader:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
 Fader:RegisterEvent("UNIT_ENTERED_VEHICLE")
 Fader:RegisterEvent("UNIT_EXITED_VEHICLE")
 
--- 【新增】宠物对战进出事件
 Fader:RegisterEvent("PET_BATTLE_OPENING_START")
 Fader:RegisterEvent("PET_BATTLE_CLOSE")
 

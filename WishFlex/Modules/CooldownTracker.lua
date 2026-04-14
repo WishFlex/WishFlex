@@ -4,10 +4,6 @@ local L = ns.L
 
 local Tracker = CreateFrame("Frame")
 WF.CooldownTrackerAPI = Tracker
-
--- =========================================
--- [默认配置与状态]
--- =========================================
 local DefaultConfig = {
     enable = true,
     isFirstInit = true, 
@@ -33,10 +29,6 @@ end
 local function IsSecret(v)
     return type(v) == "number" and type(issecretvalue) == "function" and issecretvalue(v)
 end
-
--- =========================================
--- [核心视觉处理引擎]
--- =========================================
 local function SafeKillRedBorder(frame)
     local function killTex(tex)
         if tex and not tex._wishKilled then
@@ -59,8 +51,6 @@ local function SafeKillRedBorder(frame)
     killTex(frame.CooldownFlash)
     killTex(frame.OutOfRange)
 end
-
--- 【优化】：能量监控的静态框体池，阻断高频闭包生成
 local activeResourceFrames = {}
 
 local function ApplyWishVisuals(frame)
@@ -77,15 +67,11 @@ local function ApplyWishVisuals(frame)
     local db = WF.db.cooldownTracker or {}
     local inDesat = Tracker.desatSpellSet[spellID] and db.enableDesat
     local inRes = Tracker.resourceSpellSet[spellID] and db.enableResource
-
-    -- 将需要监控能量的框体纳入静态池
     if inRes then
         activeResourceFrames[frame] = true
     else
         activeResourceFrames[frame] = nil
     end
-
-    -- 将控制权完全交还给原生
     if not inDesat and not inRes then
         if data.wishModified then
             data.isUpdating = true
@@ -159,8 +145,6 @@ function Tracker:UpdateCache()
     if db.desatSpells then for id, v in pairs(db.desatSpells) do if v then Tracker.desatSpellSet[tonumber(id)] = true end end end
     if db.resourceSpells then for id, v in pairs(db.resourceSpells) do if v then Tracker.resourceSpellSet[tonumber(id)] = true end end end
 end
-
--- 【优化】：增加跳过 Cache 和全盘遍历的选项
 function Tracker:RefreshAll(skipCacheUpdate)
     if not WF.db.cooldownTracker then return end
     if not WF.db.cooldownTracker.enable then return end
@@ -180,7 +164,6 @@ function Tracker:RefreshAll(skipCacheUpdate)
     end
 end
 
--- 【核心修复】：直接读取静态池更新，彻底告别 EnumerateActive 和 table 遍历闭包
 local powerUpdatePending = false
 local function DoPowerUpdateRefresh()
     powerUpdatePending = false
@@ -218,9 +201,6 @@ Tracker:SetScript("OnEvent", function(self, event, unit)
         elseif event == "UNIT_POWER_UPDATE" then
             if unit == "player" and not powerUpdatePending then
                 powerUpdatePending = true
-                
-                -- 【极致深度休眠】：脱战且无目标时，大幅度降低能量检测频率！
-                -- 战斗中 0.1 秒响应，站街时降频到 0.5 秒响应一次，大幅减少闭包和运算
                 local throttleTime = 0.1
                 if not InCombatLockdown() and not UnitExists("target") then
                     throttleTime = 0.5

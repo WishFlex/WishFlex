@@ -430,8 +430,6 @@ function Factory:CreateDropdown(parent, x, y, width, titleText, db, key, options
             item = CreateFrame("Button", nil, c.scrollChild)
             item.itxt = CreateUIFont(item, 12, "LEFT"); item.itxt:SetPoint("LEFT", 10, 0)
             item:SetScript("OnEnter", function() ApplyFlatSkin(item, 0.15, 0.15, 0.15, 1, 0,0,0,0) end); item:SetScript("OnLeave", function() ApplyFlatSkin(item, 0, 0, 0, 0, 0,0,0,0) end)
-            
-            -- [新增] 右侧删除按钮
             item.delBtn = CreateFrame("Button", nil, item)
             item.delBtn:SetSize(16, 16)
             item.delBtn:SetPoint("RIGHT", -5, 0)
@@ -446,8 +444,6 @@ function Factory:CreateDropdown(parent, x, y, width, titleText, db, key, options
         end
         item:SetSize(ctrlWidth - (showScroll and 30 or 10), 22); item:ClearAllPoints(); item:SetPoint("TOPLEFT", 0, -(i-1)*22); item.itxt:SetText(opt.text)
         item:SetScript("OnClick", function() db[key] = opt.value; c.valText:SetText(opt.text); c.menu:Hide(); if callback then callback(opt.value) end end)
-        
-        -- [新增] 动态显示与绑定删除逻辑
         if opt.onDelete then
             item.delBtn:Show()
             item.delBtn:SetScript("OnClick", function(self)
@@ -468,8 +464,6 @@ function Factory:CreateGroupHeader(parent, x, y, width, titleText, isExpanded, o
     local btn = WF.UI.WidgetPools.header[WF.UI.WidgetCounts.header]
     if not btn then
         btn = CreateFrame("Button", nil, UIParent, "BackdropTemplate"); ApplyFlatSkin(btn, 0.1, 0.1, 0.1, 0.8, 0, 0, 0, 0)
-        
-        -- ++新加入的斜纹调用++
         Factory.ApplyStripe(btn, 0.4, "ADD")
         
         btn.accent = btn:CreateTexture(nil, "OVERLAY"); btn.accent:SetPoint("TOPLEFT"); btn.accent:SetPoint("BOTTOMLEFT"); btn.accent:SetWidth(2)
@@ -645,8 +639,6 @@ function WF:ToggleUI()
         frame:RegisterForDrag("LeftButton"); frame:SetScript("OnDragStart", frame.StartMoving); frame:SetScript("OnDragStop", frame.StopMovingOrSizing); frame:SetFrameStrata("DIALOG")
         frame:SetResizable(true); frame:SetResizeBounds(700, 500, 1400, 1000)
         ApplyFlatSkin(frame, 0.08, 0.08, 0.08, 0.95, CR, CG, CB, 1); frame:SetScale(initialScale)
-        
-        -- ++新加入的斜纹调用：主界面背景++
         Factory.ApplyStripe(frame, 0.3, "ADD")
 
         local resizeGrip = CreateFrame("Button", nil, frame); resizeGrip:SetSize(16, 16); resizeGrip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
@@ -654,8 +646,6 @@ function WF:ToggleUI()
         resizeGrip:SetScript("OnMouseDown", function(_, button) if button == "LeftButton" then frame:StartSizing("BOTTOMRIGHT") end end); resizeGrip:SetScript("OnMouseUp", function() frame:StopMovingOrSizing() end)
 
         local sidebar = CreateFrame("Frame", nil, frame, "BackdropTemplate"); sidebar:SetPoint("TOPLEFT", 1, -1); sidebar:SetPoint("BOTTOMLEFT", 1, 1); ApplyFlatSkin(sidebar, 0.1, 0.1, 0.1, 1, 0, 0, 0, 1); frame.Sidebar = sidebar
-        
-        -- ++新加入的斜纹调用：侧边栏++
         Factory.ApplyStripe(sidebar, 0.5, "ADD")
 
         local menuBtn = CreateFrame("Button", nil, sidebar, "BackdropTemplate"); menuBtn:SetSize(40, 26); menuBtn:SetPoint("TOP", 0, -10)
@@ -665,8 +655,6 @@ function WF:ToggleUI()
         menuBtn:SetScript("OnClick", function() sidebar.isExpanded = not sidebar.isExpanded; sidebar:SetWidth(sidebar.isExpanded and SIDEBAR_WIDTH_EXPANDED or SIDEBAR_WIDTH_COLLAPSED); RenderTreeMenu(); local startRad = mIcon._wf_rot or 0; WF.UI:Animate(mIcon, "rotation", 0.2, function(ease) local currentRad = Lerp(startRad, sidebar.isExpanded and -math_pi/2 or 0, ease); mIcon:SetRotation(currentRad); mIcon._wf_rot = currentRad end); WF.UI:UpdateTargetWidth(WF.UI.CurrentReqWidth, true) end)
 
         local titleBar = CreateFrame("Frame", nil, frame, "BackdropTemplate"); titleBar:SetHeight(TITLE_HEIGHT); titleBar:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 1, 0); titleBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -1); ApplyFlatSkin(titleBar, 0.12, 0.12, 0.12, 1, 0, 0, 0, 1); frame.TitleBar = titleBar
-        
-        -- ++新加入的斜纹调用：顶部标题栏++
         Factory.ApplyStripe(titleBar, 0.6, "ADD")
         
         local titleText = CreateUIFont(titleBar, 14, "LEFT"); titleText:SetPoint("LEFT", 15, 0); titleText:SetText("|cffffffffW|cff00ffccF|r // "..(L["Home"] or "主页")); titleBar.titleText = titleText
@@ -741,16 +729,12 @@ WF.UI:RegisterPanel("Profile_Global", function(scrollChild)
                 text = pName, 
                 value = pName,
                 onDelete = function(val)
-                    -- 保护机制：防止误删当前正在使用的配置
                     if WF.globalDB.currentProfile[WF.playerKey] == val then
                         print(L["Cannot delete active profile!"] or "|cffff0000[WishFlex]|r 无法删除当前正在使用的配置文件！请先切换至其他配置。")
                         return
                     end
                     
-                    -- 从数据库中删除
                     WF.globalDB.profiles[val] = nil
-                    
-                    -- 同步清理自动加载（专精绑定）中与该配置相关的设置
                     if WF.globalDB.specProfiles then
                         for k, v in pairs(WF.globalDB.specProfiles) do
                             if v == val then WF.globalDB.specProfiles[k] = nil end
@@ -864,7 +848,6 @@ WF.UI:RegisterPanel("Profile_Global", function(scrollChild)
             expScroll:SetPoint("TOPLEFT", 5, -5); expScroll:SetPoint("BOTTOMRIGHT", -25, 5)
             expBox = CreateFrame("EditBox", nil, expScroll)
             expBox:SetMultiLine(true); expBox:SetAutoFocus(false); expBox:SetFontObject("ChatFontNormal")
-            -- [修改] 解除限制，防止被截断
             expBox:SetMaxLetters(0)
             expBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
             expScroll:SetScrollChild(expBox); expScroll.bg = bg; scrollChild.Prof_ExpScroll = expScroll; scrollChild.Prof_ExpBox = expBox
@@ -884,7 +867,6 @@ WF.UI:RegisterPanel("Profile_Global", function(scrollChild)
                 
                 local serialized = LibSerialize:Serialize(data); local compressed = LibDeflate:CompressDeflate(serialized); local encoded = LibDeflate:EncodeForPrint(compressed)
                 expBox:SetText("!WF!" .. scrollChild.Prof_ExpMode .. "!" .. encoded)
-                -- [修改] 生成代码后强制使其获取焦点并且全选文本，引导玩家直接按下 Ctrl+C 复制
                 expBox:SetFocus()
                 expBox:HighlightText()
                 print(L["Export string generated successfully."] or "|cff00ffcc[WishFlex]|r 导出字符串生成成功，请按 Ctrl+C 复制。")
@@ -919,11 +901,8 @@ WF.UI:RegisterPanel("Profile_Global", function(scrollChild)
             impScroll:SetPoint("TOPLEFT", 5, -5); impScroll:SetPoint("BOTTOMRIGHT", -25, 5)
             impBox = CreateFrame("EditBox", nil, impScroll)
             impBox:SetMultiLine(true); impBox:SetAutoFocus(false); impBox:SetFontObject("ChatFontNormal")
-            -- [修改] 将 MaxLetters 设置为 0 彻底解除字符串粘贴长度限制
             impBox:SetMaxLetters(0)
             impBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-            
-            -- [修改] 优化交互，当玩家点击到黑色背景区域时，将焦点强制赋予输入框
             bg:SetScript("OnMouseDown", function() impBox:SetFocus() end)
             
             impScroll:SetScrollChild(impBox); impScroll.bg = bg; scrollChild.Prof_ImpScroll = impScroll; scrollChild.Prof_ImpBox = impBox
@@ -946,13 +925,9 @@ if not impBtn1 then
                 
                 local success, data = LibSerialize:Deserialize(decompressed)
                 if not success or type(data) ~= "table" then print(L["Import failed: Data corrupted."] or "|cffff0000[WishFlex]|r 导入失败：数据结构损坏。"); return end
-                
-                -- 将解析出的数据合并到当前配置中
                 for k, v in pairs(data) do WF.db[k] = v end
                 
                 print((L["Successfully imported "] or "|cff00ff00[WishFlex]|r 成功导入了 [") .. prefix .. (L[" profile! Reloading..."] or "] 模块配置！正在重载界面..."))
-                
-                -- [关键修复] 直接在鼠标点击事件中同步执行重载，去除 C_Timer 延迟，确保 100% 触发
                 ReloadUI()
                 
             end)

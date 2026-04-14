@@ -1,9 +1,5 @@
 local AddonName, ns = ...
 local WF = _G.WishFlex or ns.WF
-
--- 【防御组】预设技能 ID 库
--- 只要在这里配置了的 ID，无论暴雪默认把它放哪，都会被自动强制抓取进“防御组”。
--- 你也可以随时在沙盒里手动拖拽覆盖这个规则。
 WF.DefensiveSpells = {
     -- ================= WARRIOR (战士) =================
     [23920]  = true,  -- 法术反射 (Spell Reflection)

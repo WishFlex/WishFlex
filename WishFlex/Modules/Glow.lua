@@ -45,8 +45,6 @@ local function EnsureGlowHost(frame)
     if host:GetParent() ~= target then host:SetParent(target) end
     host:ClearAllPoints()
     
-    -- 【核心绝杀 1：抛弃相对锚点，暴力赋予精准尺寸】
-    -- 防止暴雪引擎延迟计算导致 host 返回 0,0。直接拿 target 的真实尺寸锁死。
     local tw, th = target:GetSize()
     host:SetSize(tw, th)
     host:SetPoint("CENTER", target, "CENTER", 0, 0)
@@ -64,7 +62,7 @@ function Glow:Show(frame)
         elseif frame.Icon.Icon and frame.Icon.Icon.wishBd then target = frame.Icon.Icon.wishBd end
     end
 
-    -- 强制引擎重排获取矩形
+
     if target.IsRectValid and not target:IsRectValid() then
         target:GetWidth() 
     end
@@ -79,7 +77,7 @@ function Glow:Show(frame)
         frame._wishGlowHideHooked = true
     end
 
-    -- 【尺寸监听】：宿主框体一变化，自动重绘防错位
+
     if not frame._wishGlowSizeHooked then
         target:HookScript("OnSizeChanged", function()
             if activeGlowFrames[frame] then
@@ -117,8 +115,6 @@ function Glow:Show(frame)
     if db.glowType == "pixel" then
         local len = db.pixelLength
         if not len or len == 0 then
-            -- 【核心绝杀 2：绕过发光库，直接把线条长度算死传进去】
-            -- 哪怕发光库在这个毫秒抽风拿到了0，它也只能乖乖用我们算出的完美长度！
             len = math.floor((w + h) * (2 / (db.pixelLines or 8) - 0.1))
         end
         local thick = tonumber(db.pixelThickness) or 1
@@ -160,7 +156,6 @@ local function InitGlow()
     GetDB()
     if WF.RegisterEvent then
         WF:RegisterEvent("PLAYER_REGEN_DISABLED", function() C_Timer.After(0.15, function() Glow:RefreshAll() end) end)
-        -- 世界加载/读条结束后，强行延迟1秒等待所有UI排版定型，然后再画线
         WF:RegisterEvent("PLAYER_ENTERING_WORLD", function() C_Timer.After(1, function() Glow:RefreshAll() end) end)
         WF:RegisterEvent("LOADING_SCREEN_DISABLED", function() C_Timer.After(1, function() Glow:RefreshAll() end) end)
     end
