@@ -68,6 +68,7 @@ end
 
 CR._powerCache = {}
 function CR.GetSafePower(pType)
+    pType = pType or 0
     local curr = UnitPower("player", pType)
     local maxP = UnitPowerMax("player", pType)
     CR._powerCache[pType] = CR._powerCache[pType] or {c=0, m=100}
@@ -174,6 +175,15 @@ function CR.GetSecretThresholdColor(pType, rawMax, baseColor, specCfg)
         return baseColor
     end
 
+    if specCfg.power._cachedCurve and specCfg.power._cachedCurveMax == rawMax then
+        local ok, res = pcall(UnitPowerPercent, "player", pType, false, specCfg.power._cachedCurve)
+        if ok and res and res.GetRGBA then
+            local r, g, b, a = res:GetRGBA()
+            return {r=r, g=g, b=b, a=a}
+        end
+        return baseColor
+    end
+
     wipe(CR._threshCache)
     local hasAny = false
     
@@ -198,34 +208,28 @@ function CR.GetSecretThresholdColor(pType, rawMax, baseColor, specCfg)
     if not hasAny then return baseColor end
     table.sort(CR._threshCache, CR._SortThresholds)
 
-    local hash = pType .. "_" .. rawMax .. "_" .. baseColor.r .. "_" .. baseColor.g .. "_" .. baseColor.b
+    local curve = C_CurveUtil.CreateColorCurve()
+    local lastPct = 0
+    local lastColor = baseColor
+    curve:AddPoint(0.0, CreateColor(baseColor.r, baseColor.g, baseColor.b, baseColor.a or 1))
+
     for i = 1, #CR._threshCache do
         local t = CR._threshCache[i]
-        hash = hash .. "_" .. t.value .. "_" .. (t.color.r or 1) .. "_" .. (t.color.g or 1) .. "_" .. (t.color.b or 1)
+        local pct = t.value / (rawMax > 0 and rawMax or 1)
+        if pct > 1 then pct = 1 end
+        if pct < 0 then pct = 0 end
+        if pct > lastPct then curve:AddPoint(pct - 0.0001, CreateColor(lastColor.r or 1, lastColor.g or 1, lastColor.b or 1, lastColor.a or 1)) end
+        curve:AddPoint(pct, CreateColor(t.color.r or 1, t.color.g or 1, t.color.b or 1, t.color.a or 1))
+        lastPct = pct
+        lastColor = t.color
     end
+
+    if lastPct < 1.0 then curve:AddPoint(1.0, CreateColor(lastColor.r or 1, lastColor.g or 1, lastColor.b or 1, lastColor.a or 1)) end
     
-    if not CR._powerColorCurves[hash] then
-        local curve = C_CurveUtil.CreateColorCurve()
-        local lastPct = 0
-        local lastColor = baseColor
-        curve:AddPoint(0.0, CreateColor(baseColor.r, baseColor.g, baseColor.b, baseColor.a or 1))
+    specCfg.power._cachedCurve = curve
+    specCfg.power._cachedCurveMax = rawMax
 
-        for i = 1, #CR._threshCache do
-            local t = CR._threshCache[i]
-            local pct = t.value / (rawMax > 0 and rawMax or 1)
-            if pct > 1 then pct = 1 end
-            if pct < 0 then pct = 0 end
-            if pct > lastPct then curve:AddPoint(pct - 0.0001, CreateColor(lastColor.r or 1, lastColor.g or 1, lastColor.b or 1, lastColor.a or 1)) end
-            curve:AddPoint(pct, CreateColor(t.color.r or 1, t.color.g or 1, t.color.b or 1, t.color.a or 1))
-            lastPct = pct
-            lastColor = t.color
-        end
-
-        if lastPct < 1.0 then curve:AddPoint(1.0, CreateColor(lastColor.r or 1, lastColor.g or 1, lastColor.b or 1, lastColor.a or 1)) end
-        CR._powerColorCurves[hash] = curve
-    end
-
-    local ok, res = pcall(UnitPowerPercent, "player", pType, false, CR._powerColorCurves[hash])
+    local ok, res = pcall(UnitPowerPercent, "player", pType, false, curve)
     if ok and res and res.GetRGBA then
         local r, g, b, a = res:GetRGBA()
         return {r=r, g=g, b=b, a=a}
@@ -294,14 +298,28 @@ function CR.SafeFormatNum(num)
     return tostring(num)
 end
 
+-------------------------------------------------------------------------------------
+-- 【核心重构：注入暴雪原生底层平滑接口】
+-- 完全放弃之前的纯Lua手动运算，直接调用暴雪提供的 StatusBarInterpolation 引擎动画。
+-- 这样既没有任何性能开销，且完美做到了和 Ayije 一模一样的指数缓动、流畅视觉效果。
+-------------------------------------------------------------------------------------
 function CR.UpdateBarValueSafe(sb, rawCurr, rawMax)
     pcall(sb.SetMinMaxValues, sb, 0, rawMax)
     sb._targetValue = rawCurr
-    if not sb._currentValue then
-        sb._currentValue = rawCurr
-        pcall(sb.SetValue, sb, rawCurr)
+    
+    -- 核心：如果有原生引擎支持，直接调用 ExponentialEaseOut (Ayije的秘密)
+    if Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut then
+        pcall(sb.SetValue, sb, rawCurr, Enum.StatusBarInterpolation.ExponentialEaseOut)
+        sb._currentValue = rawCurr -- 标记状态即可，不需要每帧追踪
+    else
+        -- 降级方案：给不支持原生平滑的旧版本客户端
+        if not sb._currentValue then
+            sb._currentValue = rawCurr
+            pcall(sb.SetValue, sb, rawCurr)
+        end
     end
 end
+-------------------------------------------------------------------------------------
 
 local function DeepMerge(target, source)
     for k, v in pairs(source) do
@@ -439,7 +457,10 @@ function CR.GetSafeColor(cfg, defColor, isClassBar)
     return DEFAULT_COLOR
 end
 
-function CR.GetPowerColor(pType) return POWER_COLORS[pType] or DEFAULT_COLOR end
+function CR.GetPowerColor(pType) 
+    if not pType then return DEFAULT_COLOR end 
+    return POWER_COLORS[pType] or DEFAULT_COLOR 
+end
 
 function CR:DoStackLayout()
     local db = CR.GetDB(); local specCfg = self.cachedSpecCfg
@@ -780,6 +801,9 @@ function CR:UpdateLayout()
     
     local db = CR.GetDB(); local currentContextID = CR.GetCurrentContextID(); local specCfg = CR.GetCurrentSpecConfig(currentContextID)
     self.cachedSpecCfg = specCfg
+    if self.cachedSpecCfg and self.cachedSpecCfg.power then
+        self.cachedSpecCfg.power._cachedCurve = nil
+    end
 
     if self.isVigorActive and specCfg.vigor and specCfg.showVigor then
         self.showPower = false; self.showClass = false; self.showMana = false; self.showVigor = true
@@ -1135,10 +1159,21 @@ local function InitClassResource()
     C_Timer.After(0.8, function() CR:UpdateLayout() end); CR:OnContextChanged()
     
     local ticker = 0; CR.frameTick = 0
+    
+    -------------------------------------------------------------------------------------
+    -- 【配合重构】：移除无用的逐帧插值计算
+    -------------------------------------------------------------------------------------
     local function SmoothBar(bar, elapsed)
         local isMoving = false
         if bar and bar.statusBar and not bar.isForceHidden then
             local sb = bar.statusBar
+            
+            -- 如果暴雪底层 API 生效，我们就什么都不用算，直接返回 false，省下 CPU 开销
+            if Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut then
+                return false
+            end
+
+            -- (以下代码仅会在旧版/怀旧服客户端运行，作为不支持原生动画的降级兼容)
             if CR.IsSecret(sb._targetValue) then
                 sb._currentValue = sb._targetValue
                 sb:SetValue(sb._targetValue)
@@ -1149,7 +1184,9 @@ local function InitClassResource()
                 if math_abs(diff) < 0.01 then 
                     sb._currentValue = target 
                 else 
-                    sb._currentValue = current + diff * 15 * elapsed
+                    local speed = (diff > 0) and 7 or 14 
+                    local safeElapsed = math_min(elapsed, 0.033) 
+                    sb._currentValue = current + diff * speed * safeElapsed
                     isMoving = true 
                 end
                 sb:SetValue(sb._currentValue)
@@ -1167,7 +1204,7 @@ local function InitClassResource()
         for i = 1, #CR.AllBars do if SmoothBar(CR.AllBars[i], elapsed) then isAnimating = true end end
         
         ticker = ticker + elapsed
-        local interval = InCombatLockdown() and 0.05 or 0.15
+        local interval = InCombatLockdown() and 0.02 or 0.04
         if ticker >= interval then 
             ticker = 0; CR:DynamicTick()
             local hasActiveMonitors = (CR.ActiveMonitorFrames and #CR.ActiveMonitorFrames > 0)

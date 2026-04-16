@@ -62,6 +62,10 @@ end
 
 local function ParseDuration(text)
     if not text then return nil end
+    
+    -- 【核心修复】：拦截地心之战 11.0 返回的机密受保护字符串，防止调用 t:match 时报错
+    if type(issecretvalue) == "function" and issecretvalue(text) then return nil end
+    
     local t = tostring(text)
     
     local dur = t:match("持续(%d+)秒") or t:match("持续 (%d+) 秒") or t:match("持续%s*(%d+)%s*秒")

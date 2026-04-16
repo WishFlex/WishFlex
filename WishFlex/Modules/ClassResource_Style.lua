@@ -45,7 +45,6 @@ function CR:ApplyBarGraphics(bar, barCfg, db)
         fgTex:SetTexture(texPath)
         fgTex:SetHorizTile(false)
         fgTex:SetVertTile(false)
-        -- 【彻底修复材质溢出】：禁止引擎的亚像素对齐缩放补偿
         if fgTex.SetSnapToPixelGrid then
             pcall(function()
                 fgTex:SetSnapToPixelGrid(false)

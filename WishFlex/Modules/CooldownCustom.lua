@@ -397,23 +397,58 @@ function CDMod.ResolveActualSpellID(info, isAura)
     return info.overrideSpellID or info.spellID
 end
 
+-- 【终极防丢核心】：法术祖宗回溯器，确保子法术/变形法术继承所有分组与覆盖
+function CDMod.GetOverrideData(info, dbO, isAura, keyName)
+    if not dbO or type(info) ~= "table" then return nil end
+    local prefix = isAura and "BUFF_" or "CD_"
+    
+    local function CheckID(checkID)
+        if not checkID then return nil end
+        local k1 = prefix .. tostring(checkID)
+        local k2 = tostring(checkID)
+        if dbO[k1] and dbO[k1][keyName] ~= nil then return dbO[k1][keyName] end
+        if dbO[k2] and dbO[k2][keyName] ~= nil then return dbO[k2][keyName] end
+        return nil
+    end
+    
+    local sid = CDMod.ResolveActualSpellID(info, isAura)
+    local res = CheckID(sid)
+    if res ~= nil then return res end
+    
+    res = CheckID(info.overrideSpellID)
+    if res ~= nil then return res end
+    
+    res = CheckID(info.spellID)
+    if res ~= nil then return res end
+    
+    if info.linkedSpellIDs then
+        for _, lid in ipairs(info.linkedSpellIDs) do
+            res = CheckID(lid)
+            if res ~= nil then return res end
+        end
+    end
+    
+    local baseID = CDMod.GetBaseSpellFast(sid)
+    res = CheckID(baseID)
+    if res ~= nil then return res end
+    
+    return nil
+end
+
 function CDMod.ApplySpellOverrides(frame)
     if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable == false then return end
     if not frame then return end
     local info = frame.cooldownInfo or (frame.GetCooldownInfo and frame:GetCooldownInfo())
+    if not info and frame.isExtraMonitor then info = {spellID = frame.id} end
     local isAura = frame.wishFlexCategory and (frame.wishFlexCategory == "BuffIcon" or frame.wishFlexCategory == "BuffBar" or string.sub(frame.wishFlexCategory, 1, 13) == "CustomBuffRow")
-    local sid = CDMod.ResolveActualSpellID(info, isAura)
-    if not sid and frame.isExtraMonitor then sid = frame.id end
-    if not sid then return end
     
-    local spellDb = nil
-    if WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides then
-        local dbKey = (isAura and "BUFF_" or "CD_") .. tostring(sid)
-        spellDb = WF.db.cooldownCustom.spellOverrides[dbKey] or WF.db.cooldownCustom.spellOverrides[tostring(sid)]
-    end
+    local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
+    local customIcon = CDMod.GetOverrideData(info, dbO, isAura, "customIcon")
     
     local iconObj = frame.Icon and (frame.Icon.Icon or frame.Icon)
-    if spellDb then if spellDb.customIcon and spellDb.customIcon ~= "" and iconObj and iconObj.SetTexture then iconObj:SetTexture(tonumber(spellDb.customIcon) or spellDb.customIcon) end end
+    if customIcon and customIcon ~= "" and iconObj and iconObj.SetTexture then 
+        iconObj:SetTexture(tonumber(customIcon) or customIcon) 
+    end
 end
 
 CDMod.hiddenCacheBuilt = false
@@ -455,8 +490,8 @@ function CDMod:BuildHiddenCache()
             local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides or {}
             for _, data in ipairs(WF.ExtraMonitorAPI.ActiveTrackers) do
                 if data.type == "spell" and data.isRacial and data.id then
-                    local spellIDStr = tostring(data.id)
-                    local hasCustomOverride = dbO[spellIDStr] and dbO[spellIDStr].category
+                    local info = {spellID = data.id}
+                    local hasCustomOverride = CDMod.GetOverrideData(info, dbO, false, "category")
                     if not hasCustomOverride then self.hiddenCDs[data.id] = true end
                 end
             end
@@ -466,13 +501,14 @@ end
 
 function CDMod.ShouldHideCD(info)
     if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable == false then return false end
+    local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
+    
+    if CDMod.GetOverrideData(info, dbO, false, "hide") then return true end
+
     local sid = CDMod.ResolveActualSpellID(info, false); 
     if not sid and info and info.isExtraMonitor then sid = info.id end
     if not sid then return false end
 
-    local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
-    local dbKey = "CD_" .. tostring(sid)
-    if dbO and ((dbO[dbKey] and dbO[dbKey].hide) or (dbO[tostring(sid)] and dbO[tostring(sid)].hide)) then return true end
     if CDMod.hiddenCDs[sid] then return true end
     local baseID = CDMod.GetBaseSpellFast(sid); if baseID and CDMod.hiddenCDs[baseID] then return true end 
     return false
@@ -480,10 +516,11 @@ end
 
 function CDMod.ShouldHideBuff(info)
     if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable == false then return false end
-    local sid = CDMod.ResolveActualSpellID(info, true); if not sid then return false end
     local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
-    local dbKey = "BUFF_" .. tostring(sid)
-    if dbO and ((dbO[dbKey] and dbO[dbKey].hide) or (dbO[tostring(sid)] and dbO[tostring(sid)].hide)) then return true end
+    
+    if CDMod.GetOverrideData(info, dbO, true, "hide") then return true end
+
+    local sid = CDMod.ResolveActualSpellID(info, true); if not sid then return false end
     if CDMod.hiddenBuffs[sid] then return true end
     local baseID = CDMod.GetBaseSpellFast(sid); if baseID and CDMod.hiddenBuffs[baseID] then return true end 
     return false
@@ -538,23 +575,13 @@ end
 
 local function GetSortVal(f)
     local info = f.cooldownInfo or (f.GetCooldownInfo and f:GetCooldownInfo())
+    if not info and f.isExtraMonitor then info = {spellID = f.id} end
     local isAura = f.wishFlexCategory and (f.wishFlexCategory == "BuffIcon" or f.wishFlexCategory == "BuffBar" or string.sub(f.wishFlexCategory, 1, 13) == "CustomBuffRow")
-    local sid = CDMod.ResolveActualSpellID(info, isAura)
-    local dbKey = nil
     
-    if f.isExtraMonitor then sid = f.id; dbKey = f.dbKey or tostring(sid)
-    elseif sid then dbKey = (isAura and "BUFF_" or "CD_") .. tostring(sid) end
-
-    if dbKey or sid then
-        local db = WF.db.cooldownCustom
-        if db and db.spellOverrides then
-            if dbKey and db.spellOverrides[dbKey] and db.spellOverrides[dbKey].sortIndex then 
-                return db.spellOverrides[dbKey].sortIndex 
-            elseif sid and db.spellOverrides[tostring(sid)] and db.spellOverrides[tostring(sid)].sortIndex then 
-                return db.spellOverrides[tostring(sid)].sortIndex 
-            end
-        end
-    end
+    local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
+    local sortOverride = CDMod.GetOverrideData(info, dbO, isAura, "sortIndex")
+    if sortOverride then return sortOverride end
+    
     return f.layoutIndex or f.sortIndex or 999
 end
 
@@ -678,13 +705,10 @@ function CDMod:BroadcastWidth()
                 for _, f in pairs(WF.ExtraMonitorAPI.FramePool) do
                     if f:IsShown() and f.isExtraMonitor then
                         local sidStr = tostring(f.id)
-                        local dbKey = f.dbKey or sidStr
-                        local tCat = "ExtraMonitor" 
+                        local info = {spellID = f.id, isExtraMonitor = true}
                         local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
-                        if dbO then
-                            if dbO[dbKey] and dbO[dbKey].category then tCat = dbO[dbKey].category
-                            elseif dbO[sidStr] and dbO[sidStr].category then tCat = dbO[sidStr].category end
-                        end
+                        local oCat = CDMod.GetOverrideData(info, dbO, false, "category")
+                        local tCat = oCat or "ExtraMonitor"
                         if tCat == viewerType then actualCount = actualCount + 1 end
                     end
                 end
@@ -793,12 +817,10 @@ function CDMod:ForceBuffsLayout()
                 local hasTex = iconObj and (iconObj:GetTexture() or (iconObj.GetAtlas and iconObj:GetAtlas()))
                 
                 if not sid or not hasTex then CDMod.PhysicalHideFrame(f) else
-                    local tCat = defCat; local dbO = db.spellOverrides; local oCat = nil
-                    if dbO then
-                        local dbKey = "BUFF_" .. tostring(sid)
-                        if dbO[dbKey] and dbO[dbKey].category then oCat = dbO[dbKey].category
-                        elseif dbO[tostring(sid)] and dbO[tostring(sid)].category then oCat = dbO[tostring(sid)].category end
-                    end
+                    local tCat = defCat; 
+                    local dbO = db.spellOverrides; 
+                    local oCat = CDMod.GetOverrideData(info, dbO, true, "category")
+                    
                     if oCat then
                         local isCDCat = (oCat == "Essential" or oCat == "Utility" or oCat == "Defensive" or oCat == "ExtraMonitor" or oCat == "ItemBuff")
                         if db.CustomRows then for _, r in ipairs(db.CustomRows) do if oCat == r then isCDCat = true; break end end end
@@ -819,17 +841,14 @@ function CDMod:ForceBuffsLayout()
     if WF.ExtraMonitorAPI and WF.ExtraMonitorAPI.FramePool then
         for _, f in pairs(WF.ExtraMonitorAPI.FramePool) do
             if f:IsShown() and f.isExtraMonitor then
-                local sidStr = tostring(f.id)
-                local dbKey = f.dbKey or sidStr
-                local tCat = "ExtraMonitor" 
+                local info = {spellID = f.id, isExtraMonitor = true}
                 local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
-                if dbO then
-                    if dbO[dbKey] and dbO[dbKey].category then tCat = dbO[dbKey].category
-                    elseif dbO[sidStr] and dbO[sidStr].category then tCat = dbO[sidStr].category end
+                local oCat = CDMod.GetOverrideData(info, dbO, false, "category")
+                if oCat then
+                    local isBuffCat = (oCat == "BuffIcon" or oCat == "BuffBar" or oCat == "ItemBuff")
+                    if db.CustomBuffRows then for _, r in ipairs(db.CustomBuffRows) do if oCat == r then isBuffCat = true; break end end end
+                    if isBuffCat and catFrames[oCat] then table.insert(catFrames[oCat], f) end
                 end
-                local isBuffCat = (tCat == "BuffIcon" or tCat == "BuffBar")
-                if db.CustomBuffRows then for _, r in ipairs(db.CustomBuffRows) do if tCat == r then isBuffCat = true; break end end end
-                if isBuffCat and catFrames[tCat] then table.insert(catFrames[tCat], f) end
             end
         end
     end
@@ -919,12 +938,9 @@ function CDMod:UpdateAllLayouts()
                 local hasTex = iconObj and (iconObj:GetTexture() or (iconObj.GetAtlas and iconObj:GetAtlas()))
                 
                 if not sid or not hasTex then CDMod.PhysicalHideFrame(f) else
-                    local tCat = defCat; local dbO = db.spellOverrides; local oCat = nil
-                    if dbO then
-                        local dbKey = "CD_" .. tostring(sid)
-                        if dbO[dbKey] and dbO[dbKey].category then oCat = dbO[dbKey].category
-                        elseif dbO[tostring(sid)] and dbO[tostring(sid)].category then oCat = dbO[tostring(sid)].category end
-                    end
+                    local tCat = defCat; 
+                    local dbO = db.spellOverrides; 
+                    local oCat = CDMod.GetOverrideData(info, dbO, false, "category")
 
                     if oCat then
                         local isBuffCat = (oCat == "BuffIcon" or oCat == "BuffBar" or oCat == "ItemBuff")
@@ -951,17 +967,17 @@ function CDMod:UpdateAllLayouts()
     if WF.ExtraMonitorAPI and WF.ExtraMonitorAPI.FramePool then
         for _, f in pairs(WF.ExtraMonitorAPI.FramePool) do
             if f:IsShown() and f.isExtraMonitor then
-                local sidStr = tostring(f.id)
-                local dbKey = f.dbKey or sidStr
+                local info = {spellID = f.id, isExtraMonitor = true}
                 local tCat = "ExtraMonitor" 
                 local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
-                if dbO then
-                    if dbO[dbKey] and dbO[dbKey].category then tCat = dbO[dbKey].category
-                    elseif dbO[sidStr] and dbO[sidStr].category then tCat = dbO[sidStr].category end
+                local oCat = CDMod.GetOverrideData(info, dbO, false, "category")
+                
+                if oCat then
+                    local isBuffCat = (oCat == "BuffIcon" or oCat == "BuffBar" or oCat == "ItemBuff")
+                    if db.CustomBuffRows then for _, r in ipairs(db.CustomBuffRows) do if oCat == r then isBuffCat = true; break end end end
+                    if not isBuffCat then tCat = oCat end
                 end
-                local isBuffCat = (tCat == "BuffIcon" or tCat == "BuffBar")
-                if db.CustomBuffRows then for _, r in ipairs(db.CustomBuffRows) do if tCat == r then isBuffCat = true; break end end end
-                if not isBuffCat and catFrames[tCat] then table.insert(catFrames[tCat], f) end
+                if catFrames[tCat] then table.insert(catFrames[tCat], f) end
             end
         end
     end
@@ -1090,6 +1106,13 @@ local function InitCooldownCustom()
                     end
                 end
             end)
+            
+            -- 【终极防断流挂钩】：确保暴雪原生布局刷新时，无条件触发我们的引擎
+            if viewer.UpdateLayout then
+                hooksecurefunc(viewer, "UpdateLayout", function()
+                    CDMod:MarkLayoutDirty(false)
+                end)
+            end
         end
     end
 

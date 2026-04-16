@@ -7,7 +7,10 @@ local DEFAULT_SWIPE_COLOR = {r = 0, g = 0, b = 0, a = 0.5}
 local DEFAULT_ACTIVE_AURA_COLOR = {r = 0, g = 0, b = 0, a = 0.5}
 
 local SafeHide = function(self) if self:IsShown() then self:Hide() end; if self:GetAlpha() > 0 then self:SetAlpha(0) end end
-local SafeEquals = function(v, expected) return (type(v) ~= "number" or not (issecretvalue and issecretvalue(v))) and v == expected end
+local SafeEquals = function(v, expected) 
+    local ok, res = pcall(function() return v == expected end)
+    return ok and res 
+end
 
 function CDMod.ApplyElvUISkin(targetObj, parentFrame)
     if not targetObj then return nil end
@@ -15,8 +18,11 @@ function CDMod.ApplyElvUISkin(targetObj, parentFrame)
         local bd = CreateFrame("Frame", nil, parentFrame)
         local parentLvl = (parentFrame and parentFrame.GetFrameLevel and parentFrame:GetFrameLevel()) or 1
         if targetObj.GetFrameLevel then bd:SetFrameLevel(math.max(0, targetObj:GetFrameLevel() - 1)) else bd:SetFrameLevel(math.max(0, parentLvl)) end
-        local bg = bd:CreateTexture(nil, "BACKGROUND", nil, -1)
-        bg:SetAllPoints(); bg:SetColorTexture(0.05, 0.05, 0.05, 0.6); bd.bg = bg
+        
+        bd.ignoreBackdrop = true
+        if bd.SetBackdrop then pcall(function() bd:SetBackdrop(nil) end) end
+        bd.CreateBackdrop = function() end; bd.SetTemplate = function() end
+        
         local m = CDMod.GetOnePixelSize()
         local function DrawEdge(p1, p2, x, y, w, h)
             local t = bd:CreateTexture(nil, "BORDER", nil, 1); t:SetColorTexture(0, 0, 0, 1)
@@ -61,7 +67,12 @@ end
 
 function CDMod.SuppressDebuffBorder(f)
     if not f or f._wishBorderSuppressed then return end; f._wishBorderSuppressed = true
-    local borders = { f.PandemicIcon, f.DebuffBorder, f.Border, f.IconBorder, f.IconOverlay, f.overlay, f.ExpireBorder, f.Icon and f.Icon.Border, f.Icon and f.Icon.IconBorder, f.Icon and f.Icon.DebuffBorder, f.Bar and f.Bar.Border, f.Bar and f.Bar.BarBG, f.Bar and f.Bar.Pip }
+    
+    local borders = { 
+        f.Background, f.bg, f.PandemicIcon, f.DebuffBorder, f.Border, f.IconBorder, f.IconOverlay, f.overlay, f.ExpireBorder, 
+        f.Icon and f.Icon.Border, f.Icon and f.Icon.IconBorder, f.Icon and f.Icon.DebuffBorder, f.Icon and f.Icon.bg, f.Icon and f.Icon.Background,
+        f.Bar and f.Bar.Border, f.Bar and f.Bar.BarBG, f.Bar and f.Bar.Pip, f.Bar and f.Bar.bg, f.Bar and f.Bar.Background 
+    }
     for i = 1, #borders do 
         local border = borders[i]
         if border then 
@@ -71,10 +82,15 @@ function CDMod.SuppressDebuffBorder(f)
     end
     if f.DebuffBorder and f.DebuffBorder.UpdateFromAuraData then hooksecurefunc(f.DebuffBorder, "UpdateFromAuraData", SafeHide) end
     if f.ShowPandemicStateFrame then hooksecurefunc(f, "ShowPandemicStateFrame", function(self) if self.PandemicIcon then if self.PandemicIcon:IsShown() then self.PandemicIcon:Hide() end; self.PandemicIcon:SetAlpha(0) end end) end
+    
     for i = 1, select("#", f:GetRegions()) do 
         local region = select(i, f:GetRegions())
         if region and region.IsObjectType and region:IsObjectType("Texture") then 
-            if SafeEquals(region:GetAtlas(), "UI-HUD-CoolDownManager-IconOverlay") or SafeEquals(region:GetTexture(), 6707800) then region:SetAlpha(0); region:Hide(); hooksecurefunc(region, "Show", SafeHide) end 
+            local isOverlay = false
+            pcall(function() isOverlay = (region:GetAtlas() == "UI-HUD-CoolDownManager-IconOverlay" or region:GetTexture() == 6707800) end)
+            if isOverlay then 
+                region:SetAlpha(0); region:Hide(); hooksecurefunc(region, "Show", SafeHide) 
+            end 
         end 
     end
 end
@@ -88,7 +104,7 @@ local function ForceSwipeColor(self, r, g, b, a)
 end
 
 function CDMod:ApplySwipeSettings(frame) 
-    if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable == false then return end -- 拦截
+    if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable == false then return end
     if not frame or not frame.Cooldown then return end
     if frame.CooldownFlash and not frame._wishFlashHooked then
         hooksecurefunc(frame.CooldownFlash, "Show", function(self) self:Hide(); if self.FlashAnim then self.FlashAnim:Stop() end end)
@@ -99,6 +115,7 @@ function CDMod:ApplySwipeSettings(frame)
     local function ApplyToCooldown(cd, isMain)
         local db = WF.db.cooldownCustom; local rev = db.reverseSwipe; if rev == nil then rev = true end
         cd:SetReverse(rev); cd:SetUseCircularEdge(false)
+        
         local iconTex = frame.Icon and (frame.Icon.Icon or frame.Icon) or frame
         local realAnchor = iconTex.wishBd or iconTex
         cd:ClearAllPoints(); cd:SetAllPoints(realAnchor); cd:SetFrameLevel(frame:GetFrameLevel() + (isMain and 2 or 1))
@@ -140,13 +157,19 @@ local function FormatText(t, isStack, cdSize, cdColor, cdPos, cdX, cdY, stackSiz
 end
 
 function CDMod:ApplyText(frame, category)
-    if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable == false then return end -- 拦截
+    if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable == false then return end 
     local db = WF.db.cooldownCustom; local cfg = db[category]; if not cfg then return end
     local fontPath = (LSM and LSM:Fetch('font', db.countFont)) or STANDARD_TEXT_FONT; local outline = db.countFontOutline or "OUTLINE"
     local cdSize, cdColor, cdPos, cdX, cdY = cfg.cdFontSize, cfg.cdFontColor, cfg.cdPosition or "CENTER", cfg.cdXOffset or 0, cfg.cdYOffset or 0
     local stackSize, stackColor, stackPos, stackX, stackY = cfg.stackFontSize, cfg.stackFontColor, cfg.stackPosition or "BOTTOMRIGHT", cfg.stackXOffset or 0, cfg.stackYOffset or 0
     
-    if not frame.wishTextContainer then frame.wishTextContainer = CreateFrame("Frame", nil, frame); frame.wishTextContainer:SetAllPoints() end
+    if not frame.wishTextContainer then 
+        frame.wishTextContainer = CreateFrame("Frame", nil, frame)
+        frame.wishTextContainer.ignoreBackdrop = true
+        if frame.wishTextContainer.SetBackdrop then pcall(function() frame.wishTextContainer:SetBackdrop(nil) end) end
+        frame.wishTextContainer.CreateBackdrop = function() end; frame.wishTextContainer.SetTemplate = function() end
+        frame.wishTextContainer:SetAllPoints() 
+    end
     frame.wishTextContainer:SetFrameLevel(frame:GetFrameLevel() + 10)
 
     local targetRefStack = frame; local targetRefCD = frame
@@ -154,7 +177,9 @@ function CDMod:ApplyText(frame, category)
         if cfg.showIcon ~= false then
             local iconObj = type(frame.Icon) == "table" and (frame.Icon.IsObjectType and frame.Icon:IsObjectType("Texture") and frame.Icon or frame.Icon.Icon) or frame.Icon
             targetRefStack = iconObj and iconObj.wishBd or iconObj or frame; targetRefCD = frame.Bar and frame.Bar.wishBd or frame.Bar or frame
-        else targetRefStack = frame.Bar and frame.Bar.wishBd or frame.Bar or frame; targetRefCD = targetRefStack end
+        else 
+            targetRefStack = frame.Bar and frame.Bar.wishBd or frame.Bar or frame; targetRefCD = targetRefStack 
+        end
     else
         local iconObj = type(frame.Icon) == "table" and (frame.Icon.IsObjectType and frame.Icon:IsObjectType("Texture") and frame.Icon or frame.Icon.Icon) or frame.Icon
         targetRefStack = iconObj and iconObj.wishBd or iconObj or frame; targetRefCD = targetRefStack
@@ -184,34 +209,135 @@ function CDMod:ApplyText(frame, category)
 end
 
 local function ApplyIconAlignment(f, w, h)
-    local iconTex, iconParent
-    if type(f.Icon) == "table" and f.Icon.IsObjectType and f.Icon:IsObjectType("Texture") then iconTex, iconParent = f.Icon, f else iconTex, iconParent = f.Icon.Icon or f.Icon, f.Icon or f end
+    local isTex = type(f.Icon) == "table" and f.Icon.IsObjectType and f.Icon:IsObjectType("Texture")
+    local iconTex = isTex and f.Icon or (f.Icon and f.Icon.Icon) or f.Icon
+    local iconFrame = isTex and f or f.Icon
+
     if iconTex then
-        local iconBd = CDMod.ApplyElvUISkin(iconTex, iconParent)
-        iconBd:ClearAllPoints(); iconBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0); iconBd:SetSize(w, h); iconBd:Show()
-        iconTex:Show(); CDMod.ApplyTexCoord(iconTex, w, h)
+        local iconBd = CDMod.ApplyElvUISkin(iconTex, iconFrame)
+        iconBd:SetSize(w, h); iconBd:Show()
+
+        -- 【VFLOW 级架构】：整体移动并缩放原生 f.Icon 框架
+        if not isTex and f.Icon then
+            f.Icon:SetSize(w, h)
+            f.Icon:ClearAllPoints()
+            f.Icon:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
+            
+            iconBd:ClearAllPoints()
+            iconBd:SetAllPoints(f.Icon)
+        else
+            iconBd:ClearAllPoints()
+            iconBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
+        end
+
+        if iconTex.Show then iconTex:Show() end
+        CDMod.ApplyTexCoord(iconTex, w, h)
     end
 end
 
 local function ApplyBarAlignment(f, cfg, w, h, barH, gap)
     local iconPos = cfg.iconPosition or "LEFT"; local barPos = cfg.barPosition or "CENTER"; local showIcon = (cfg.showIcon ~= false) 
-    local iconTex, iconParent, barObj, barParent
-    if type(f.Icon) == "table" and f.Icon.IsObjectType and f.Icon:IsObjectType("Texture") then iconTex, iconParent = f.Icon, f else iconTex, iconParent = f.Icon.Icon or f.Icon, f.Icon or f end; barObj, barParent = f.Bar, f
-    local iconBd = CDMod.ApplyElvUISkin(iconTex, iconParent); local barBd = CDMod.ApplyElvUISkin(barObj, barParent)
+    f._wf_showIcon = showIcon 
+    
+    local isTex = type(f.Icon) == "table" and f.Icon.IsObjectType and f.Icon:IsObjectType("Texture")
+    local iconTex = isTex and f.Icon or (f.Icon and f.Icon.Icon) or f.Icon
+    local iconFrame = isTex and f or f.Icon
+    local barObj = f.Bar or f.StatusBar
+
+    -- AYIJE 防御：封印进度条自带底色和材质
+    if barObj then
+        if barObj.BarBG then
+            barObj.BarBG:Hide(); barObj.BarBG:SetAlpha(0)
+            if not barObj._wf_bgHooked then
+                hooksecurefunc(barObj.BarBG, "Show", SafeHide)
+                if barObj.BarBG.SetAlpha then hooksecurefunc(barObj.BarBG, "SetAlpha", function(s, a) if a > 0 and not s._wishAlphaLock then s._wishAlphaLock = true; s:SetAlpha(0); s._wishAlphaLock = false end end) end
+                barObj._wf_bgHooked = true
+            end
+        end
+        if barObj.Pip then
+            barObj.Pip:Hide(); barObj.Pip:SetAlpha(0)
+            if not barObj._wf_pipHooked then
+                hooksecurefunc(barObj.Pip, "Show", SafeHide)
+                if barObj.Pip.SetAlpha then hooksecurefunc(barObj.Pip, "SetAlpha", function(s, a) if a > 0 and not s._wishAlphaLock then s._wishAlphaLock = true; s:SetAlpha(0); s._wishAlphaLock = false end end) end
+                barObj._wf_pipHooked = true
+            end
+        end
+    end
+    
+    local iconBd = CDMod.ApplyElvUISkin(iconTex, iconFrame)
+    local barBd = CDMod.ApplyElvUISkin(barObj, f)
+    
     iconBd:ClearAllPoints(); barBd:ClearAllPoints()
     
     local itemH = math.max(h, barH)
     local actualBarW = w
+    
     if showIcon then
-        iconBd:SetSize(h, h); iconBd:Show(); iconTex:Show(); CDMod.ApplyTexCoord(iconTex, h, h) 
-        actualBarW = math.max(1, w - h - gap); barBd:SetSize(actualBarW, barH) 
+        if f.Cooldown then f.Cooldown:SetAlpha(1) end
+        iconBd:SetSize(h, h); iconBd:Show()
+        
+        if not isTex and f.Icon and f.Icon.Show then f.Icon:Show() end
+        if iconTex and iconTex.Show then iconTex:Show() end
+        if iconTex and iconTex.SetTexCoord then CDMod.ApplyTexCoord(iconTex, h, h) end 
+        
+        actualBarW = math.max(1, w - h - gap); barBd:SetSize(actualBarW, barH); barBd:Show()
+        
         local iconY, barY
-        if barPos == "TOP" then iconY = itemH - h; barY = itemH - barH elseif barPos == "BOTTOM" then iconY = 0; barY = 0 else iconY = CDMod.PixelSnap((itemH - h) / 2); barY = CDMod.PixelSnap((itemH - barH) / 2) end
-        if iconPos == "LEFT" then iconBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, iconY); barBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", h + gap, barY) else barBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, barY); iconBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", actualBarW + gap, iconY) end
+        if barPos == "TOP" then 
+            iconY = itemH - h; barY = itemH - barH 
+        elseif barPos == "BOTTOM" then 
+            iconY = 0; barY = 0 
+        else 
+            iconY = CDMod.PixelSnap((itemH - h) / 2); barY = CDMod.PixelSnap((itemH - barH) / 2) 
+        end
+        
+        local iconX, barX = 0, 0
+        if iconPos == "LEFT" then 
+            iconX = 0; barX = h + gap
+        else 
+            barX = 0; iconX = actualBarW + gap
+        end
+
+        -- 【VFLOW 级核心架构修复】：带着所有暴雪原生底图，整体移动原生 f.Icon 框架！
+        if not isTex and f.Icon then
+            f.Icon:SetSize(h, h)
+            f.Icon:ClearAllPoints()
+            f.Icon:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", iconX, iconY)
+            
+            iconBd:ClearAllPoints()
+            iconBd:SetAllPoints(f.Icon)
+        else
+            iconBd:ClearAllPoints()
+            iconBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", iconX, iconY)
+        end
+        
+        barBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", barX, barY)
     else
-        iconBd:Hide(); iconTex:Hide(); barBd:SetSize(w, barH)
+        if f.Cooldown then 
+            f.Cooldown:SetAlpha(0)
+            f.Cooldown:SetDrawSwipe(false)
+            f.Cooldown:SetDrawEdge(false)
+            f.Cooldown:SetDrawBling(false)
+        end
+        iconBd:Hide(); if iconTex and iconTex.Hide then iconTex:Hide() end
+        
+        -- 当隐藏图标时，将整个 f.Icon 框架放逐到屏幕外，彻底杜绝任何幽灵黑框泄露
+        if not isTex and f.Icon then 
+            if f.Icon.Hide then pcall(function() f.Icon:Hide() end) end 
+            f.Icon:ClearAllPoints()
+            f.Icon:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", -9999, -9999)
+        end
+        
+        barBd:SetSize(w, barH); barBd:Show()
+        
         local barY
-        if barPos == "TOP" then barY = itemH - barH elseif barPos == "BOTTOM" then barY = 0 else barY = CDMod.PixelSnap((itemH - barH) / 2) end
+        if barPos == "TOP" then 
+            barY = itemH - barH 
+        elseif barPos == "BOTTOM" then 
+            barY = 0 
+        else 
+            barY = CDMod.PixelSnap((itemH - barH) / 2) 
+        end
         barBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, barY)
     end
     
@@ -255,8 +381,13 @@ local function StyleFrameCommon(f, cfg, w, h, catName)
 end
 
 function CDMod:ImmediateStyleFrame(frame, category)
-    if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable == false then return end -- 拦截最核心的样式覆写
+    if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable == false then return end 
     if not frame then return end
+    
+    frame.ignoreBackdrop = true
+    if frame.SetBackdrop then pcall(function() frame:SetBackdrop(nil) end) end
+    frame.CreateBackdrop = function() end; frame.SetTemplate = function() end
+
     local isBuffGroup = (category == "BuffIcon" or category == "BuffBar")
     local db = WF.db.cooldownCustom
     if db and db.CustomBuffRows then for _, r in ipairs(db.CustomBuffRows) do if category == r then isBuffGroup = true; break end end end
@@ -282,7 +413,11 @@ function CDMod:ImmediateStyleFrame(frame, category)
     local cfg = db and db[category]
     if cfg then 
         local w = CDMod.PixelSnap(cfg.width or 45); local h = CDMod.PixelSnap(cfg.height or 45)
-        if frame.Icon then local iconParent = type(frame.Icon) == "table" and frame.Icon.IsObjectType and frame.Icon:IsObjectType("Texture") and frame or frame.Icon; local iconTex = type(frame.Icon) == "table" and frame.Icon.IsObjectType and frame.Icon:IsObjectType("Texture") and frame.Icon or frame.Icon.Icon; CDMod.RemoveBarIconMask(iconParent, iconTex) end
+        
+        local maskTargetFrame = frame.Icon or frame
+        local maskTargetTex = type(frame.Icon) == "table" and (frame.Icon.Icon or frame.Icon) or frame.Icon
+        CDMod.RemoveBarIconMask(maskTargetFrame, maskTargetTex)
+        
         StyleFrameCommon(frame, cfg, w, h, category)
         
         if category == "BuffBar" and cfg.barColor and frame.Bar then

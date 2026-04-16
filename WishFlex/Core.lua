@@ -791,3 +791,20 @@ WF:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function(event, unit)
         end
     end
 end)
+
+local function EnforceCooldownManager()
+    local currentState = GetCVar("cooldownViewerEnabled")
+    if currentState ~= "1" then
+        SetCVar("cooldownViewerEnabled", "1")
+        C_Timer.After(2, function()
+            print("\124cff00ccff[WishFlex]\124r 检测到您未开启暴雪原生的【冷却管理器】，已为您自动开启。如果您首次安装发现技能冷却没有立刻显示，请输入 \124cffffd100/reload\124r 重载一次界面即可。")
+        end)
+    end
+end
+
+local wfInitFrame = CreateFrame("Frame")
+wfInitFrame:RegisterEvent("PLAYER_LOGIN")
+wfInitFrame:SetScript("OnEvent", function(self, event)
+    EnforceCooldownManager()
+    self:UnregisterEvent(event)
+end)

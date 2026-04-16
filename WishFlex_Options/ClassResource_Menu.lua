@@ -388,7 +388,11 @@ local confirmBtn = popup.scrollChild.AddConfirmBtn or WF.UI.Factory:CreateFlatBu
             if not wmDB.skills then wmDB.skills = {} end; if not wmDB.buffs then wmDB.buffs = {} end
             local targetDB = st.cat == "skill" and wmDB.skills or wmDB.buffs; local isTextMode = (st.displayMode == "text")
             
-            local newCfg = { enable = true, specID = tempDB.spec, displayMode = st.displayMode or "bar", alwaysShow = false, color = {r=0,g=0.8,b=1,a=1}, hideOriginal = not isTextMode, independent = isTextMode, fontSize = isTextMode and 20 or nil, height = 10, width = 250, useCustomBgColor = false, bgColor = {r=0,g=0,b=0,a=0.5}, textEnable = not isTextMode, timerEnable = true }
+            -------------------------------------------------------------------------
+            -- 核心修改：如果是条（bar），让 hideOriginal 默认为 false（不隐藏图标）
+            -------------------------------------------------------------------------
+            local newCfg = { enable = true, specID = tempDB.spec, displayMode = st.displayMode or "bar", alwaysShow = false, color = {r=0,g=0.8,b=1,a=1}, hideOriginal = false, independent = isTextMode, fontSize = isTextMode and 20 or nil, height = 10, width = 250, useCustomBgColor = false, bgColor = {r=0,g=0,b=0,a=0.5}, textEnable = not isTextMode, timerEnable = true }
+            -------------------------------------------------------------------------
             
             if st.cat == "skill" then newCfg.trackType = st.type; newCfg.color = {r=1,g=0.5,b=0,a=1}; newCfg.timerAnchor = "CENTER"
             else newCfg.mode = st.type; newCfg.color = {r=0,g=0.8,b=1,a=1}; if st.type == "stack" then newCfg.maxStacks = st.maxStacks or 5 end; newCfg.timerAnchor = "CENTER" end

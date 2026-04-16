@@ -34,15 +34,32 @@ WM.TrackedBuffs = {}
 WM.SpellToCD = {}
 WM.ActiveBuffFrames = {}
 WM.ActiveSkillFrames = {}
-
 WM.ScanCacheFrames = {}
 
+-- 状态哈希，如果框体没变，拒绝查询 API 生成垃圾表
+WM.LastCDHash = 0 
+WM.chargeCache = {} -- 静态充能判断缓存
+
 function WM:ScanViewers(isFromUI)
-    -- 【核心断流拦截】
     if WF.db and WF.db.classResource and WF.db.classResource.enable == false then return end
     if WF.db and WF.db.wishMonitor and WF.db.wishMonitor.enable == false then return end
 
+    -- 预先计算当前存在的 CooldownID 综合哈希
+    local currentHash = 0
+    local viewers = {"EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer"}
+    for _, vName in ipairs(viewers) do
+        local v = _G[vName]
+        if v and v.itemFramePool then
+            for frame in v.itemFramePool:EnumerateActive() do
+                currentHash = currentHash + (frame.cooldownID or (frame.cooldownInfo and frame.cooldownInfo.cooldownID) or 0)
+            end
+        end
+    end
+    
+    if not isFromUI and WM.LastCDHash == currentHash then return end
+    WM.LastCDHash = currentHash
     WM.HasScanned = true
+    
     wipe(WM.TrackedSkills)
     wipe(WM.TrackedBuffs)
     wipe(WM.SpellToCD)
@@ -71,7 +88,7 @@ function WM:ScanViewers(isFromUI)
                         end
                         
                         local mainID = (info.linkedSpellIDs and info.linkedSpellIDs[1]) or info.overrideSpellID or info.spellID
-                        if mainID and type(mainID) == "number" and not (issecretvalue and issecretvalue(mainID)) and mainID > 0 then
+                        if mainID and type(mainID) == "number" and not IsSecret(mainID) and mainID > 0 then
                             local sInfo = C_Spell.GetSpellInfo(mainID)
                             if sInfo and sInfo.name then
                                 if isAura then WM.TrackedBuffs[tostring(mainID)] = { name = sInfo.name, icon = sInfo.iconID }
@@ -120,7 +137,6 @@ WM.SortedSkillIDsArray = {}
 WM.SortedBuffIDsArray = {}
 
 function WM:UpdateData()
-    -- 【核心断流拦截】
     if WF.db and WF.db.classResource and WF.db.classResource.enable == false then return end
     if WF.db and WF.db.wishMonitor and WF.db.wishMonitor.enable == false then return end
 
@@ -142,6 +158,9 @@ function WM:UpdateData()
         if not cfg.enable then return end
         if cfg.alignWithResource == nil then cfg.alignWithResource = true end
         if cfg.alwaysShow == nil then cfg.alwaysShow = false end
+
+        -- 强制确立隐藏原生图标的初始值为 false（即不隐藏），确保 UI 读取时不会异常勾选
+        if cfg.hideOriginal == nil then cfg.hideOriginal = false end
         
         local matchSpec = false
         if cfg.allSpecs or not cfg.specID or cfg.specID == 0 or cfg.specID == currentSpecID then matchSpec = true end
@@ -149,11 +168,15 @@ function WM:UpdateData()
         
         local spellID = tonumber(spellIDStr)
         local isActive, rawCount, maxVal, durObjC = false, 0, 1, nil
-        
         local tType = isBuff and "buff" or "cooldown"
-        local testChInfo = C_Spell.GetSpellCharges(spellID)
+        
+        if WM.chargeCache[spellID] == nil then
+            local testChInfo = C_Spell.GetSpellCharges(spellID)
+            WM.chargeCache[spellID] = (testChInfo and type(testChInfo.maxCharges) == "number" and testChInfo.maxCharges > 1) or false
+        end
+        
         local isChargeSpell = false
-        if cfg.trackType == "charge" or (testChInfo and type(testChInfo.maxCharges) == "number" and testChInfo.maxCharges > 1) then
+        if cfg.trackType == "charge" or WM.chargeCache[spellID] then
             isChargeSpell = true
             tType = "charge"
         end
@@ -161,23 +184,67 @@ function WM:UpdateData()
         if isBuff then
             local cdID = WM.SpellToCD[spellID]
             local instID, foundFrame = nil, nil
-            if cdID then
-                for i = 1, #WM.ActiveBuffFrames do
-                    local frame = WM.ActiveBuffFrames[i]
-                    if frame.cooldownID == cdID or (frame.cooldownInfo and frame.cooldownInfo.cooldownID == cdID) then instID = frame.auraInstanceID; foundFrame = frame; break end
+            local auraUnit = "player"
+
+            -- 1. 标准 API 检查（用于常规/非隐藏 BUFF）
+            local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+            if aura then
+                isActive = true
+                rawCount = aura.applications or 0
+                if aura.auraInstanceID then
+                    durObjC = C_UnitAuras.GetAuraDuration("player", aura.auraInstanceID)
                 end
             end
-            if instID and IsSafeValue(instID) then
-                local data = C_UnitAuras.GetAuraDataByAuraInstanceID("player", instID)
-                if data then isActive = true; rawCount = data.applications or 0; durObjC = C_UnitAuras.GetAuraDuration("player", instID) end
+
+            -- 2. 扫描系统高级冷却管理器（12.0 处理核心）
+            if not isActive and cdID then
+                for _, vName in ipairs({"BuffIconCooldownViewer", "BuffBarCooldownViewer", "EssentialCooldownViewer", "UtilityCooldownViewer"}) do
+                    local viewer = _G[vName]
+                    if viewer and viewer.itemFramePool then
+                        for frame in viewer.itemFramePool:EnumerateActive() do
+                            local frameCdID = frame.cooldownID or (frame.cooldownInfo and frame.cooldownInfo.cooldownID)
+                            -- frame:IsShown() 校验过滤掉残留过期数据
+                            if frameCdID == cdID and frame:IsShown() then
+                                foundFrame = frame
+                                -- 兼容 12.0 改动：AuraData Table
+                                instID = frame.auraInstanceID
+                                if type(instID) == "table" and instID.auraInstanceID ~= nil then
+                                    instID = instID.auraInstanceID
+                                end
+                                if type(frame.auraDataUnit) == "string" and frame.auraDataUnit ~= "" then
+                                    auraUnit = frame.auraDataUnit
+                                end
+                                break
+                            end
+                        end
+                    end
+                    if foundFrame then break end
+                end
             end
+
+            -- 3. 解析 instID 获取数据
+            if not isActive and instID and IsSafeValue(instID) then
+                local data = C_UnitAuras.GetAuraDataByAuraInstanceID(auraUnit, instID)
+                if data then 
+                    isActive = true
+                    rawCount = data.applications or 0
+                    durObjC = C_UnitAuras.GetAuraDuration(auraUnit, instID) 
+                end
+            end
+
+            -- 4. 终极兜底逻辑
             if not isActive and foundFrame then
-                isActive = true; rawCount = foundFrame.count or 0
+                isActive = true
+                rawCount = foundFrame.count or 0
                 local cInfo = foundFrame.cooldownInfo
-                if cInfo and cInfo.startTime and cInfo.duration and cInfo.duration > 0 then durObjC = { startTime = cInfo.startTime, duration = cInfo.duration } end
+                if cInfo and cInfo.startTime and cInfo.duration and cInfo.duration > 0 then 
+                    durObjC = { startTime = cInfo.startTime, duration = cInfo.duration } 
+                end
             end
+            
             maxVal = (cfg.mode == "stack") and (tonumber(cfg.maxStacks) or 5) or 1
         else
+            -- 技能冷却/充能逻辑
             if isChargeSpell then 
                 local chInfo = C_Spell.GetSpellCharges(spellID)
                 if chInfo then 
@@ -206,18 +273,11 @@ function WM:UpdateData()
                 WM.ItemTablePool[itemPoolIdx] = data
             end
             
-            data.spellIDStr = spellIDStr
-            data.spellID = spellID
-            data.cfg = cfg
-            data.isBuff = isBuff
-            data.isConfigPreview = isConfigPreview
+            data.spellIDStr = spellIDStr; data.spellID = spellID; data.cfg = cfg
+            data.isBuff = isBuff; data.isConfigPreview = isConfigPreview
             
-            data.state.spellID = spellID
-            data.state.isActive = isActive
-            data.state.count = rawCount
-            data.state.maxVal = maxVal
-            data.state.durObjC = durObjC
-            data.state.trackType = tType
+            data.state.spellID = spellID; data.state.isActive = isActive; data.state.count = rawCount
+            data.state.maxVal = maxVal; data.state.durObjC = durObjC; data.state.trackType = tType
             
             table.insert(activeData, data)
         end
@@ -242,14 +302,13 @@ end
 
 local isUpdateScheduled = false
 function WM:TriggerUpdate()
-    -- 【核心断流拦截】
     if WF.db and WF.db.classResource and WF.db.classResource.enable == false then return end
     if WF.db and WF.db.wishMonitor and WF.db.wishMonitor.enable == false then return end
 
     if isUpdateScheduled then return end
     isUpdateScheduled = true
     
-    C_Timer.After(0.15, function()
+    C_Timer.After(0.3, function()
         isUpdateScheduled = false
         WM:ScanViewers(false)
         WM:UpdateData() 
@@ -262,7 +321,6 @@ end
 
 local function InitWishMonitor()
     GetDB()
-    -- 【极其严格的开局拦截】
     if WF.db and WF.db.classResource and WF.db.classResource.enable == false then return end
     if WF.db and WF.db.wishMonitor and WF.db.wishMonitor.enable == false then return end
 
@@ -294,10 +352,13 @@ function WM:GetPreviewData(editSpecID)
             local matchSpec = false
             if cfg.allSpecs or not cfg.specID or cfg.specID == 0 or cfg.specID == currentSpec then matchSpec = true end
             if cfg.enable and matchSpec then
+                -- 将底层数据暴露给UI侧，强制 nil 默认 false 不隐藏
+                if cfg.hideOriginal == nil then cfg.hideOriginal = false end
                 local si = C_Spell.GetSpellInfo(tonumber(idStr))
                 table.insert(list, {
                     idStr = idStr, spellID = tonumber(idStr), name = si and si.name or idStr,
                     height = cfg.height, color = cfg.color or {r=0,g=0.8,b=1,a=1},
+                    hideOriginal = cfg.hideOriginal,
                     showStack = (db.showStack ~= false) and (cfg.showStackText ~= false), showTimer = (db.showTimer ~= false) and (cfg.showTimerText ~= false),
                     fontSize = cfg.fontSize, stackAnchor = cfg.stackAnchor, timerAnchor = cfg.timerAnchor,
                     mode = cfg.mode, maxStacks = cfg.maxStacks, inFreeLayout = cfg.inFreeLayout, reverseFill = cfg.reverseFill, bgColor = cfg.bgColor

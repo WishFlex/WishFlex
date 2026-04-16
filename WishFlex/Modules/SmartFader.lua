@@ -84,7 +84,6 @@ local function SetFrameAlphaImmediate(frame, targetAlpha)
     end
 end
 
-
 local function GetTargetAlpha(db)
     local inPetBattle = C_PetBattles and C_PetBattles.IsInBattle()
     local inVehicle = UnitInVehicle("player") or UnitHasVehicleUI("player")
@@ -107,6 +106,7 @@ local function GetTargetAlpha(db)
     return 1
 end
 
+-- 【极致内存优化】：将闭包函数提升到外部，防止在 OnUpdate 中每秒生成数十个新函数
 local function ProcessCategory(catDB, catName, inEditMode)
     if not catDB or type(catDB) ~= "table" then return end
     
@@ -124,6 +124,7 @@ local function ProcessCategory(catDB, catName, inEditMode)
     end
 end
 
+-- 【极致内存优化】：缓存全局查询表，避免每帧重复创建 Table 导致垃圾积攒
 local MONITOR_FRAMES = { "WishFlex_ExtraMonitor", "ExtraMonitorCooldownViewer", "WishFlex_ExtraMonitorCooldownViewer" }
 local EM_VIS_CACHE = { enable = false, hideOOC = true, dragonriding = false, friendly = false, vehicle = false }
 local EMPTY_TABLE = {}
@@ -159,6 +160,8 @@ function Fader:UpdateVisibility()
     end
 
     local emDB = WF.db.extraMonitor
+    
+    -- 复用缓存表，彻底消除 Table 重新分配产生的内存垃圾
     EM_VIS_CACHE.enable, EM_VIS_CACHE.hideOOC, EM_VIS_CACHE.dragonriding, EM_VIS_CACHE.friendly, EM_VIS_CACHE.vehicle = false, true, false, false, false
     
     if cdDB and cdDB.ExtraMonitor and cdDB.ExtraMonitor.visibility and cdDB.ExtraMonitor.visibility.enable then
@@ -200,7 +203,6 @@ Fader:RegisterEvent("PLAYER_REGEN_DISABLED")
 Fader:RegisterEvent("PLAYER_REGEN_ENABLED")
 Fader:RegisterEvent("PLAYER_TARGET_CHANGED") 
 Fader:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
-Fader:RegisterEvent("UNIT_PET")
 
 Fader:RegisterEvent("UPDATE_VEHICLE_ACTIONBAR")
 Fader:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
@@ -210,13 +212,46 @@ Fader:RegisterEvent("UNIT_EXITED_VEHICLE")
 Fader:RegisterEvent("PET_BATTLE_OPENING_START")
 Fader:RegisterEvent("PET_BATTLE_CLOSE")
 
+Fader:RegisterEvent("PLAYER_ALIVE")
+Fader:RegisterEvent("PLAYER_UNGHOST")
+Fader:RegisterEvent("PLAYER_ENTERING_WORLD") 
+Fader:RegisterEvent("UNIT_PET")
+
+-- 防抖触发器：防止在过图或复活时多个事件同时爆发导致卡顿
+local isLayoutPending = false
+local function TriggerLayoutFlush()
+    if isLayoutPending then return end
+    isLayoutPending = true
+    -- 稍微加长到0.8秒，确保暴雪的宠物条和技能条彻底重排完毕后，我们再出手
+    C_Timer.After(0.8, function() 
+        isLayoutPending = false
+        if WF.CooldownCustomAPI then
+            if type(WF.CooldownCustomAPI.BuildHiddenCache) == "function" then WF.CooldownCustomAPI:BuildHiddenCache() end
+            -- 【修复1】：传入 true 强制标记布局已脏
+            if type(WF.CooldownCustomAPI.MarkLayoutDirty) == "function" then WF.CooldownCustomAPI:MarkLayoutDirty(true) end
+            -- 【修复2】：修正函数名为 UpdateAllLayouts
+            if type(WF.CooldownCustomAPI.UpdateAllLayouts) == "function" then WF.CooldownCustomAPI:UpdateAllLayouts() end
+        end
+        -- 同步推暴雪原生框体一把，将卡入异次元的图标强行抓回第二行
+        if _G.EssentialCooldownViewer and _G.EssentialCooldownViewer.UpdateLayout then _G.EssentialCooldownViewer:UpdateLayout() end
+        if _G.UtilityCooldownViewer and _G.UtilityCooldownViewer.UpdateLayout then _G.UtilityCooldownViewer:UpdateLayout() end
+        if _G.WishFlex_DefensiveCooldownViewer and _G.WishFlex_DefensiveCooldownViewer.UpdateLayout then _G.WishFlex_DefensiveCooldownViewer:UpdateLayout() end
+    end)
+end
+
 Fader:SetScript("OnEvent", function(self, event, ...)
     self:UpdateVisibility()
+    
+    -- 【核心拦截】：覆盖所有可能导致暴雪UI重排的事件（复活、过图登录、宠物召唤/解散或死亡）
+    if event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" or event == "PLAYER_ENTERING_WORLD" or event == "UNIT_PET" then
+        TriggerLayoutFlush()
+    end
 end)
 
 local tickElapsed = 0
 Fader:SetScript("OnUpdate", function(_, delta)
     tickElapsed = tickElapsed + delta
+    -- 结合事件驱动机制，此处的 0.3 秒仅用作飞行等无精确事件状态的补漏
     if tickElapsed >= 0.3 then 
         tickElapsed = 0
         Fader:UpdateVisibility()
