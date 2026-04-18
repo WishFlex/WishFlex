@@ -3,8 +3,12 @@ local WF = ns.WF
 local LCG = LibStub("LibCustomGlow-1.0", true)
 WF.GlowEngine = {}
 
-
 local GlowHosts = {}
+
+-- 【极限优化1】：全局复用发光参数表，杜绝高频刷新时产生海量 Table 内存垃圾
+local cachedColor = {1, 1, 1, 1}
+local cachedProcOpts = {color = nil, duration = 1, xOffset = 0, yOffset = 0, key = nil, frameLevel = 0}
+
 function WF.GlowEngine:EnsureHost(frame)
     if not frame then return nil end
     local target = frame.wishBd or frame
@@ -44,8 +48,17 @@ function WF.GlowEngine:ApplyGlow(targetFrame, glowKey, options)
 
     if not options.enable then return end
 
-    local c = options.color or {r = 1, g = 1, b = 1, a = 1}
-    local colorArr = options.useCustomColor and {c.r or 1, c.g or 1, c.b or 1, c.a or 1} or nil
+    local colorArr = nil
+    if options.useCustomColor then
+        local c = options.color
+        if c then
+            cachedColor[1] = c.r or 1; cachedColor[2] = c.g or 1; cachedColor[3] = c.b or 1; cachedColor[4] = c.a or 1
+        else
+            cachedColor[1] = 1; cachedColor[2] = 1; cachedColor[3] = 1; cachedColor[4] = 1
+        end
+        colorArr = cachedColor
+    end
+    
     local t = options.type or "pixel"
 
     if t == "pixel" then
@@ -59,7 +72,12 @@ function WF.GlowEngine:ApplyGlow(targetFrame, glowKey, options)
         if freq == 0 then freq = nil end
         LCG.ButtonGlow_Start(host, colorArr, freq, 0)
     elseif t == "proc" then
-        LCG.ProcGlow_Start(host, {color = colorArr, duration = tonumber(options.procDuration) or 1, xOffset = tonumber(options.procXOffset) or 0, yOffset = tonumber(options.procYOffset) or 0, key = glowKey, frameLevel = 0})
+        cachedProcOpts.color = colorArr
+        cachedProcOpts.duration = tonumber(options.procDuration) or 1
+        cachedProcOpts.xOffset = tonumber(options.procXOffset) or 0
+        cachedProcOpts.yOffset = tonumber(options.procYOffset) or 0
+        cachedProcOpts.key = glowKey
+        LCG.ProcGlow_Start(host, cachedProcOpts)
     end
 end
 

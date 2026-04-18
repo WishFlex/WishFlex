@@ -8,6 +8,7 @@ local ActiveKeys = {}
 
 local DEFAULT_BG_COLOR = {r=0, g=0, b=0, a=0.5}
 local DEFAULT_BAR_COLOR = {r=0, g=0.8, b=1, a=1}
+
 local function GetOnePixelSize()
     local screenHeight = select(2, GetPhysicalScreenSize())
     if not screenHeight or screenHeight == 0 then return 1 end
@@ -93,7 +94,7 @@ function WF.BarEngine:AcquireFrame(key)
             f.cd._WFHooked = true
         end
         
-        f.cd.noCooldownOverride = true; f.cd.noOCC = true; f.cd.skipElvUICooldown = true
+        f.cd.noCooldownOverride = true; f.cd.noOCC = true; f.cd.skipElvUICooldown = true; f.cd.noCooldownCount = false
         f.cd:SetHideCountdownNumbers(false); f.cd:SetFrameLevel(f:GetFrameLevel() + 20)
         
         local textFrame = CreateFrame("Frame", nil, f)
@@ -146,30 +147,58 @@ function WF.BarEngine:ApplyStyle(f, visualConfig)
     f.refreshCharge:SetStatusBarTexture(texPath)
     f.refreshCharge:SetStatusBarColor(tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, fgAlpha * 0.8)
 
-    f.stackText:SetFont(fontPath, fSize + 2, "OUTLINE"); f.stackText:SetTextColor(1, 1, 1, 1)
+    local tC = visualConfig.textColor or visualConfig.color or {r=1, g=1, b=1, a=1}
+    f.stackText:SetFont(fontPath, fSize + 2, "OUTLINE")
+    f.stackText:SetTextColor(tonumber(tC.r) or 1, tonumber(tC.g) or 1, tonumber(tC.b) or 1, tonumber(tC.a) or 1)
 
     if f.timerText then
         if f.timerText.FontTemplate then f.timerText:FontTemplate(fontPath, fSize, "OUTLINE") else f.timerText:SetFont(fontPath, fSize, "OUTLINE") end
-        f.timerText:SetTextColor(1, 1, 1, 1)
+        f.timerText:SetTextColor(tonumber(tC.r) or 1, tonumber(tC.g) or 1, tonumber(tC.b) or 1, tonumber(tC.a) or 1)
     end
     if visualConfig.iconID then f.icon:SetTexture(visualConfig.iconID) end
 
-    if visualConfig.textEnable == false then
+    local isTextMode = (visualConfig.displayMode == "text")
+    local showStack = (visualConfig.textEnable ~= false)
+    local showTimer = (visualConfig.timerEnable ~= false)
+
+    if isTextMode then
+        showStack = false
+    end
+
+    if not showStack then
         f.stackText:SetText("")
         f.stackText:SetAlpha(0)
         f.stackText:Hide()
+    else
+        f.stackText:SetAlpha(1)
     end
+
+    if f.timerText then f.timerText:SetAlpha(showTimer and 1 or 0) end
+    f.cd:SetHideCountdownNumbers(not showTimer)
+    f.cd.noCooldownCount = false
 
     if visualConfig.useStatusBar then
         f.iconFrame:Hide(); f.cd:SetDrawSwipe(false); f.cd:Show()
-        f.bg:Show(); f.sbBorder:Show()
-        if visualConfig.textEnable ~= false then ApplyTextAnchor(f.stackText, visualConfig.textAnchor, f, visualConfig.xOffset, visualConfig.yOffset, "LEFT") end
-        if not visualConfig.dynamicTimer and f.timerText then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "RIGHT") end
+        
+        if isTextMode then
+            f.bg:Hide()
+            if f.sbBorder then f.sbBorder:Hide() end
+            f.chargeBar:SetAlpha(0)
+            f.refreshCharge:SetAlpha(0)
+        else
+            f.bg:Show()
+            if f.sbBorder then f.sbBorder:Show() end
+            f.chargeBar:SetAlpha(1)
+            f.refreshCharge:SetAlpha(1)
+        end
+
+        if showStack then ApplyTextAnchor(f.stackText, visualConfig.textAnchor, f, visualConfig.xOffset, visualConfig.yOffset, "LEFT") end
+        if not visualConfig.dynamicTimer and f.timerText and showTimer then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "RIGHT") end
     else
         f.iconFrame:Hide(); f.bg:Hide(); f.sbBorder:Hide(); f.chargeBar:Hide(); f.refreshCharge:Hide()
         f.cd:SetDrawSwipe(false); f.cd:SetDrawEdge(false); f.cd:SetDrawBling(false); f.cd:Show()
-        if visualConfig.textEnable ~= false then ApplyTextAnchor(f.stackText, visualConfig.textAnchor, f, visualConfig.xOffset, visualConfig.yOffset, "CENTER") end
-        if f.timerText then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "CENTER") end
+        if showStack then ApplyTextAnchor(f.stackText, visualConfig.textAnchor, f, visualConfig.xOffset, visualConfig.yOffset, "CENTER") end
+        if f.timerText and showTimer then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "CENTER") end
     end
 end
 
@@ -181,9 +210,12 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
     local c = visualConfig.color or DEFAULT_BAR_COLOR
     local r, g, b, a = tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, tonumber(c.a) or 1
     
-    local currentCount = tonumber(state.count) or 0
-    if tostring(state.spellID) == "187880" and currentCount >= 5 then
-        r, g, b = 1, 0.5, 0  
+    local isTextMode = (visualConfig.displayMode == "text")
+    local showStack = (visualConfig.textEnable ~= false)
+    local showTimer = (visualConfig.timerEnable ~= false)
+
+    if isTextMode then
+        showStack = false
     end
 
     if state.isActive then
@@ -192,22 +224,35 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
         if visualConfig.useStatusBar then
             f.chargeBar:SetStatusBarColor(r, g, b, a)
             f.refreshCharge:SetStatusBarColor(r, g, b, a * 0.8)
+            
+            if isTextMode then
+                f.chargeBar:SetAlpha(0)
+                f.refreshCharge:SetAlpha(0)
+            else
+                f.chargeBar:SetAlpha(1)
+                f.refreshCharge:SetAlpha(1)
+            end
         end
 
-        if visualConfig.textEnable == false then
+        if not showStack then
             f.stackText:SetText("")
             f.stackText:SetAlpha(0)
             f.stackText:Hide()
         else
+            f.stackText:SetAlpha(1)
             local success, isSecret = pcall(function() return type(state.count) == "number" and type(issecretvalue) == "function" and issecretvalue(state.count) end)
-            if success and isSecret then pcall(function() f.stackText:SetText(state.count) end); f.stackText:Show() else
-                local cnt = tonumber(state.count) or 0; if cnt > 0 then f.stackText:SetText(cnt); f.stackText:Show() else f.stackText:Hide() end
+            if success and isSecret then 
+                pcall(function() f.stackText:SetText(state.count) end)
+                f.stackText:Show() 
+            else
+                local cnt = tonumber(state.count) or 0
+                if cnt > 0 then f.stackText:SetText(cnt); f.stackText:Show() else f.stackText:Hide() end
             end
         end
         
-        if f.timerText then
-            if visualConfig.timerEnable == false then f.timerText:SetAlpha(0) else f.timerText:SetAlpha(1) end
-        end
+        if f.timerText then f.timerText:SetAlpha(showTimer and 1 or 0) end
+        f.cd:SetHideCountdownNumbers(not showTimer)
+        f.cd.noCooldownCount = false
 
         if visualConfig.useStatusBar then
             if state.trackType == "buff" and visualConfig.mode == "stack" then
@@ -215,7 +260,7 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
                 if f.chargeBar.ClearTimerDuration then pcall(function() f.chargeBar:ClearTimerDuration() end) end
                 f.chargeBar:SetMinMaxValues(0, state.maxVal); f.chargeBar:SetValue(state.count or 0)
                 f.cd:ClearAllPoints(); f.cd:SetAllPoints(f.chargeBar) 
-                if f.timerText then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "RIGHT") end
+                if f.timerText and showTimer then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "RIGHT") end
             elseif state.trackType == "charge" then
                 f.chargeBar:Show()
                 if f.chargeBar.ClearTimerDuration then pcall(function() f.chargeBar:ClearTimerDuration() end) end
@@ -238,11 +283,11 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
                     local dir = Enum.StatusBarTimerDirection and Enum.StatusBarTimerDirection.ElapsedTime or 0
                     if f.refreshCharge.SetTimerDuration then pcall(function() f.refreshCharge:SetTimerDuration(state.durObjC, 0, dir) end) end
                     f.refreshCharge:Show(); f.cd:ClearAllPoints(); f.cd:SetAllPoints(f.refreshCharge)
-                    if f.timerText then ApplyTextAnchor(f.timerText, "CENTER", f.refreshCharge, visualConfig.timerXOffset, visualConfig.timerYOffset, "CENTER") end
+                    if f.timerText and showTimer then ApplyTextAnchor(f.timerText, "CENTER", f.refreshCharge, visualConfig.timerXOffset, visualConfig.timerYOffset, "CENTER") end
                 else
                     f.refreshCharge:Hide(); if f.refreshCharge.ClearTimerDuration then pcall(function() f.refreshCharge:ClearTimerDuration() end) end
                     f.cd:ClearAllPoints(); f.cd:SetAllPoints(f.chargeBar)
-                    if f.timerText then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "RIGHT") end
+                    if f.timerText and showTimer then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "RIGHT") end
                 end
             else 
                 f.chargeBar:Show(); f.refreshCharge:Hide(); if f.refreshCharge.ClearTimerDuration then pcall(function() f.refreshCharge:ClearTimerDuration() end) end
@@ -255,7 +300,7 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
                     if f.chargeBar.ClearTimerDuration then pcall(function() f.chargeBar:ClearTimerDuration() end) end; f.chargeBar:SetValue(1)
                 end 
                 f.cd:ClearAllPoints(); f.cd:SetAllPoints(f.chargeBar)
-                if f.timerText then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "RIGHT") end
+                if f.timerText and showTimer then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "RIGHT") end
             end
         end
         if state.durObjC then 
@@ -266,27 +311,50 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
         else f.cd:Clear() end
     else
         f.cd:Clear(); f.stackText:Hide(); if f.timerText then f.timerText:Hide() end
+        
+        local isConfigOpen = WF.MoversUnlocked or (WF.UI and WF.UI.MainFrame and WF.UI.MainFrame:IsShown()) or (EditModeManagerFrame and EditModeManagerFrame:IsShown())
+        
         if visualConfig.useStatusBar then
             f.chargeBar:Show(); f.refreshCharge:Hide()
             if f.chargeBar.ClearTimerDuration then pcall(function() f.chargeBar:ClearTimerDuration() end) end
             if f.refreshCharge.ClearTimerDuration then pcall(function() f.refreshCharge:ClearTimerDuration() end) end
             f.chargeBar:SetMinMaxValues(0, f.maxVal or 1)
             
-            local isConfigOpen = WF.UI and WF.UI.MainFrame and WF.UI.MainFrame:IsShown()
             if isConfigOpen then
                 f.chargeBar:SetValue((f.maxVal or 1) * 0.5)
                 local fgAlpha = tonumber(c.a) or 1
                 f.chargeBar:SetStatusBarColor(r, g, b, fgAlpha)
                 f:SetAlpha(1)
+                
+                if isTextMode then
+                    f.chargeBar:SetAlpha(0)
+                    f.bg:Hide()
+                    if f.sbBorder then f.sbBorder:Hide() end
+                else
+                    f.chargeBar:SetAlpha(1)
+                    f.bg:Show()
+                    if f.sbBorder then f.sbBorder:Show() end
+                end
+                
+                if showTimer and f.timerText then 
+                    f.timerText:SetText("5.0"); f.timerText:SetAlpha(1); f.timerText:Show() 
+                end
+                if showStack then
+                    f.stackText:SetText(f.maxVal and f.maxVal > 1 and f.maxVal or "3"); f.stackText:SetAlpha(1); f.stackText:Show()
+                end
             else
                 f.chargeBar:SetValue(0)
                 if visualConfig.alwaysShow then f:SetAlpha(1) else f:SetAlpha(0) end
             end
             f.cd:ClearAllPoints(); f.cd:SetAllPoints(f.chargeBar)
         else
-            local isConfigOpen = WF.UI and WF.UI.MainFrame and WF.UI.MainFrame:IsShown()
             if isConfigOpen then
-                if visualConfig.timerEnable ~= false and f.timerText then f.timerText:SetText("5.0"); f.timerText:SetAlpha(1); f.timerText:Show() end
+                if showTimer and f.timerText then 
+                    f.timerText:SetText("5.0"); f.timerText:SetAlpha(1); f.timerText:Show() 
+                end
+                if showStack then
+                    f.stackText:SetText(f.maxVal and f.maxVal > 1 and f.maxVal or "3"); f.stackText:SetAlpha(1); f.stackText:Show()
+                end
                 f:SetAlpha(1)
             else f:SetAlpha(0) end
         end

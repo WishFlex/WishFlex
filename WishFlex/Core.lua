@@ -23,11 +23,12 @@ WF.EventDispatcher = CreateFrame("Frame")
 WF.EventCallbacks = {}
 WF.EventDispatcher:SetScript("OnEvent", function(_, event, ...)
     if WF.EventCallbacks[event] then
-        for i = 1, #WF.EventCallbacks[event] do
-            xpcall(WF.EventCallbacks[event][i], geterrorhandler(), event, ...)
+        for _, callback in ipairs(WF.EventCallbacks[event]) do
+            xpcall(callback, geterrorhandler(), event, ...)
         end
     end
 end)
+
 function WF:RegisterEvent(event, callback)
     if type(callback) ~= "function" then return end
     if not self.EventCallbacks[event] then
@@ -648,30 +649,16 @@ local function CopyDefaults(src, target)
     return target
 end
 
-local StandbyManager = CreateFrame("Frame")
-StandbyManager:RegisterEvent("PLAYER_REGEN_ENABLED")
-StandbyManager:SetScript("OnEvent", function(self, event)
-    if event == "PLAYER_REGEN_ENABLED" then
-        C_Timer.After(5, function()
-            if not InCombatLockdown() then
-                collectgarbage("collect")
-            end
-        end)
-    end
-end)
-
 WF:RegisterEvent("ADDON_LOADED", function(event, addon)
     if addon == "WishFlex" then
         if not WishFlexDB then WishFlexDB = {} end
         
-        -- 初始化全局配置结构
         if not WishFlexDB.profiles then WishFlexDB.profiles = {} end
         if not WishFlexDB.currentProfile then WishFlexDB.currentProfile = {} end
         if not WishFlexDB.specProfiles then WishFlexDB.specProfiles = {} end
 
         local playerKey = UnitName("player") .. "-" .. GetRealmName()
         
-        -- 当某个角色首次加载时，为其创建基于角色名的独立配置档
         if not WishFlexDB.currentProfile[playerKey] then
             if not WishFlexDB.profiles[playerKey] then
                 WishFlexDB.profiles[playerKey] = {}
@@ -684,7 +671,6 @@ WF:RegisterEvent("ADDON_LOADED", function(event, addon)
 
         local activeProfileName = WishFlexDB.currentProfile[playerKey]
         
-        -- 容错：如果指向的配置文件被删除了，重新为当前角色生成
         if not WishFlexDB.profiles[activeProfileName] then 
             activeProfileName = playerKey
             WishFlexDB.profiles[activeProfileName] = {}
@@ -768,6 +754,7 @@ local function InitializeAddon()
                         end
                     end
                 end
+                if WF.TriggerCooldownLayout then WF.TriggerCooldownLayout() end
             end)
         end
     end
@@ -801,6 +788,39 @@ local function EnforceCooldownManager()
         end)
     end
 end
+
+-- 【终极形态：智能分步回收器 (Smart GC)】
+-- 在保证0卡顿的前提下，像微波炉雷达一样探测，直到把脱战垃圾完全清理干净才停止。
+local GCManager = CreateFrame("Frame")
+local gcTicker = nil
+GCManager:RegisterEvent("PLAYER_REGEN_ENABLED")
+GCManager:SetScript("OnEvent", function(self, event)
+    if event == "PLAYER_REGEN_ENABLED" then
+        C_Timer.After(4, function() -- 给系统留4秒处理脱战数据
+            if InCombatLockdown() then return end
+            if gcTicker then gcTicker:Cancel() end
+            
+            local maxTicks = 100 -- 最多清理10秒，防止死循环
+            local currentTick = 0
+            
+            gcTicker = C_Timer.NewTicker(0.1, function()
+                if InCombatLockdown() then 
+                    if gcTicker then gcTicker:Cancel() end
+                    return 
+                end
+                
+                -- collectgarbage("step", 2000) 每次极速扫掉 2MB 垃圾
+                -- 如果它返回 true，说明整个内存里的垃圾已经清空，一尘不染了！
+                local isClean = collectgarbage("step", 2000)
+                currentTick = currentTick + 1
+                
+                if isClean or currentTick >= maxTicks then
+                    if gcTicker then gcTicker:Cancel() end
+                end
+            end, maxTicks)
+        end)
+    end
+end)
 
 local wfInitFrame = CreateFrame("Frame")
 wfInitFrame:RegisterEvent("PLAYER_LOGIN")

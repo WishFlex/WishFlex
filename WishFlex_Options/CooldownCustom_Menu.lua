@@ -22,7 +22,6 @@ StaticPopupDialogs["WISHFLEX_RELOAD_CONFIRM"] = {
     preferredIndex = 3,
 }
 
-
 local function GetDynamicGlowOptions(dbRef, isAuraGlow, titleStr, cb)
     local kType = isAuraGlow and "glowType" or "glowType"
     local kColor = isAuraGlow and "glowColor" or "color"
@@ -70,7 +69,6 @@ end
 local function IsBuffCat(c) return (c == "BuffIcon" or c == "BuffBar" or c == "ItemBuff" or (c and string.sub(c, 1, 13) == "CustomBuffRow")) end
 local function IsSkillCat(c) return (c == "Essential" or c == "Utility" or c == "Defensive" or (c and string.sub(c, 1, 9) == "CustomRow")) end
 
-
 function CDMod.Menu:ShowRightClickMenu(btn, spellID, spellName, catName, emData, refreshCallback, subMenu)
     if catName == "ItemBuff" then return end 
     
@@ -113,7 +111,6 @@ function CDMod.Menu:ShowRightClickMenu(btn, spellID, spellName, catName, emData,
             end
 
             table.insert(toggles, { text = L["SmartHide Settings ->"] or "显示/隐藏条件设置 ->", isAction = true, keepPos = true, action = function() CDMod.Menu:ShowRightClickMenu(btn, spellID, spellName, catName, emData, refreshCallback, "visibility") end })
-
             m.title:SetText(emData.name or L["Extra Monitor"] or "额外监控")
             m.title:Show() 
         else
@@ -166,6 +163,16 @@ function CDMod.Menu:ShowRightClickMenu(btn, spellID, spellName, catName, emData,
                 if WF.UI.SandboxMenu then WF.UI.SandboxMenu:Hide() end
                 if WF.UI.RefreshCurrentPanel then WF.UI:RefreshCurrentPanel() end 
             end })
+
+            -- 【核心防御】：严格限制“独立外观与边框设置”只对增益图标组显示和起作用！
+            if catName == "BuffIcon" then
+                table.insert(toggles, { text = L["Individual Appearance"] or "独立边框与透明度设置", isAction = true, action = function() 
+                    CDMod.Sandbox.popupMode = "SPELL_OVERRIDE"
+                    CDMod.Sandbox.popupTarget = spellID
+                    if WF.UI.SandboxMenu then WF.UI.SandboxMenu:Hide() end
+                    if WF.UI.RefreshCurrentPanel then WF.UI:RefreshCurrentPanel() end 
+                end })
+            end
 
             m.title:SetText("")
             m.title:Hide() 
@@ -221,7 +228,6 @@ function CDMod.Menu:ShowRightClickMenu(btn, spellID, spellName, catName, emData,
     m:Show()
 end
 
-
 function CDMod.Menu:GetPopup()
     if not WF.UI.CDPopup then
         local popup = CreateFrame("Frame", "WishFlex_CDPopup", WF.MainFrame, "BackdropTemplate")
@@ -274,7 +280,6 @@ function CDMod.Menu:RenderPopupContent(popup, mode, target, db, handleCallback, 
                 { type = "toggle", key = "snapToEssential", db = db.Utility, text = L["Utility Snap to Essential"] or "实用组吸附到核心组下方", callback = handleCallback },
                 { type = "toggle", key = "snapToResource", db = db.BuffIcon, text = L["Buff Icon Snap to Resource"] or "增益图标吸附到资源条", callback = function(val) db.BuffIcon.snapToResource = val; if val then db.BuffIcon.snapToEssential = false end; handleCallback("UI_REFRESH") end },
                 { type = "toggle", key = "snapToEssential", db = db.BuffIcon, text = L["Buff Icon Snap to Essential"] or "增益图标吸附到核心组", callback = function(val) db.BuffIcon.snapToEssential = val; if val then db.BuffIcon.snapToResource = false end; handleCallback("UI_REFRESH") end },
-                -- 【新增：加入吸附设置】
                 { type = "toggle", key = "snapToBuffIcon", db = db.ItemBuff, text = L["Item Buff Snap to Buff Icon"] or "物品/药水组吸附增益组", callback = handleCallback }, 
                 { type = "toggle", key = "attachToPlayer", db = db.Defensive, text = L["Defensive Attach to Player"] or "防御组吸附玩家头像", callback = handleCallback },
                 { type = "toggle", key = "attachToPlayer", db = db.ExtraMonitor, text = L["Extra Monitor Attach to Player"] or "额外监控吸附玩家头像", callback = handleCallback },
@@ -298,6 +303,22 @@ function CDMod.Menu:RenderPopupContent(popup, mode, target, db, handleCallback, 
             { type = "group", key = "sb_glow_aura", text = L["Custom Status Frame"] or "自定义状态提示框", childs = auraOpts }
         }
         py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, glowDynamicOpts, handleCallback)
+
+    elseif mode == "SPELL_OVERRIDE" then
+        popup.titleText:SetText((L["Individual Settings"] or "独立外观设置") .. " - " .. tostring(target))
+        if not db.spellOverrides then db.spellOverrides = {} end
+        local sidStr = tostring(target)
+        if type(db.spellOverrides[sidStr]) ~= "table" then db.spellOverrides[sidStr] = {} end
+        local overrideDB = db.spellOverrides[sidStr]
+        
+        local opts = {
+            { type = "toggle", key = "borderEnable", db = overrideDB, text = L["Enable Individual Border"] or "启用独立边框", callback = handleCallback },
+            { type = "slider", key = "borderSize", db = overrideDB, min = 1, max = 10, step = 1, text = L["Border Size"] or "边框粗细", callback = handleCallback },
+            { type = "color", key = "borderColor", db = overrideDB, text = L["Border Color"] or "边框颜色", callback = handleCallback },
+            { type = "toggle", key = "idleAlphaEnable", db = overrideDB, text = L["Enable Idle Alpha"] or "开启非激活状态透明度", callback = handleCallback },
+            { type = "slider", key = "idleAlpha", db = overrideDB, min = 0, max = 100, step = 5, text = L["Idle Alpha %"] or "非激活时透明度%", callback = handleCallback },
+        }
+        py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, opts, handleCallback)
     
     elseif mode == "ROW" then
         popup.titleText:SetText((L["Layout & Size Settings"] or "布局与尺寸设置 - ") .. tostring(target))
@@ -310,11 +331,28 @@ function CDMod.Menu:RenderPopupContent(popup, mode, target, db, handleCallback, 
         local rowOpts = nil
         local catDB = db[target] or {}
         
-        if target == "Essential" or target == "Utility" or target == "Defensive" or target == "BuffIcon" then
+        -- 【控制点】严格去除所有非功能性快捷键设置
+        if target == "Essential" or target == "Utility" or target == "Defensive" then
             rowOpts = { { type = "group", key = "sb_"..target, text = target .. (L["Group Layout"] or " 组排版"), childs = {
                 { type = "slider", key = "iconGap", db = catDB, min = 0, max = 50, step = 1, text = L["Gap"] or "间距" },
                 { type = "slider", key = "width", db = catDB, min = 10, max = 100, step = 1, text = L["Width"] or "宽度" },
-                { type = "slider", key = "height", db = catDB, min = 10, max = 100, step = 1, text = L["Height"] or "高度" }
+                { type = "slider", key = "height", db = catDB, min = 10, max = 100, step = 1, text = L["Height"] or "高度" },
+                { type = "toggle", key = "borderEnable", db = catDB, text = L["Enable Border"] or "显示边框", callback = handleCallback },
+                { type = "slider", key = "borderSize", db = catDB, min = 1, max = 5, step = 1, text = L["Border Size"] or "边框粗细", callback = handleCallback },
+                { type = "color", key = "borderColor", db = catDB, text = L["Border Color"] or "边框颜色", callback = handleCallback },
+                { type = "toggle", key = "showHotkey", db = catDB, text = L["Show Hotkey"] or "显示快捷键", callback = handleCallback },
+                { type = "dropdown", key = "hkPosition", db = catDB, text = L["Hotkey Position"] or "快捷键位置", options = { {text="TOPRIGHT", value="TOPRIGHT"}, {text="TOPLEFT", value="TOPLEFT"}, {text="BOTTOMLEFT", value="BOTTOMLEFT"}, {text="BOTTOMRIGHT", value="BOTTOMRIGHT"} }, callback = handleCallback },
+                { type = "slider", key = "hkFontSize", db = catDB, min = 8, max = 24, step = 1, text = L["Hotkey Size"] or "快捷键字号", callback = handleCallback },
+                { type = "color", key = "hkFontColor", db = catDB, text = L["Hotkey Color"] or "快捷键颜色", callback = handleCallback },
+            } } }
+        elseif target == "BuffIcon" then
+            rowOpts = { { type = "group", key = "sb_"..target, text = target .. (L["Group Layout"] or " 组排版"), childs = {
+                { type = "slider", key = "iconGap", db = catDB, min = 0, max = 50, step = 1, text = L["Gap"] or "间距" },
+                { type = "slider", key = "width", db = catDB, min = 10, max = 100, step = 1, text = L["Width"] or "宽度" },
+                { type = "slider", key = "height", db = catDB, min = 10, max = 100, step = 1, text = L["Height"] or "高度" },
+                { type = "toggle", key = "borderEnable", db = catDB, text = L["Enable Border"] or "显示边框", callback = handleCallback },
+                { type = "slider", key = "borderSize", db = catDB, min = 1, max = 5, step = 1, text = L["Border Size"] or "边框粗细", callback = handleCallback },
+                { type = "color", key = "borderColor", db = catDB, text = L["Border Color"] or "边框颜色", callback = handleCallback },
             } } }
         elseif target == "BuffBar" then
             rowOpts = { { type = "group", key = "sb_bb", text = L["Buff Bar Group"] or "增益条组", childs = { 
@@ -327,16 +365,21 @@ function CDMod.Menu:RenderPopupContent(popup, mode, target, db, handleCallback, 
                 { type = "slider", key = "iconGap", db = catDB, min = 0, max = 50, step = 1, text = L["Icon & Bar Gap"] or "图标与条间距", callback = handleCallback }, 
                 { type = "slider", key = "width", db = catDB, min = 50, max = 400, step = 1, text = L["Total Width"] or "总宽度", callback = handleCallback },
                 { type = "slider", key = "height", db = catDB, min = 10, max = 100, step = 1, text = L["Icon Size"] or "图标大小", callback = handleCallback }, 
-                { type = "slider", key = "barHeight", db = catDB, min = 2, max = 100, step = 1, text = L["Independent Bar Height"] or "增益条独立高度", callback = handleCallback } 
+                { type = "slider", key = "barHeight", db = catDB, min = 2, max = 100, step = 1, text = L["Independent Bar Height"] or "增益条独立高度", callback = handleCallback },
+                { type = "toggle", key = "borderEnable", db = catDB, text = L["Enable Border"] or "显示边框", callback = handleCallback },
+                { type = "slider", key = "borderSize", db = catDB, min = 1, max = 5, step = 1, text = L["Border Size"] or "边框粗细", callback = handleCallback },
+                { type = "color", key = "borderColor", db = catDB, text = L["Border Color"] or "边框颜色", callback = handleCallback },
             } } }
         elseif target == "ItemBuff" then
-
             rowOpts = { { type = "group", key = "sb_ItemBuff", text = L["Item/Potion Buff"] or "物品/药水持续时间", childs = {
                 { type = "toggle", key = "snapToBuffIcon", db = catDB, text = L["Snap to Buff Icon"] or "吸附到增益组上方", callback = handleCallback },
                 { type = "slider", key = "iconGap", db = catDB, min = 0, max = 50, step = 1, text = L["Gap"] or "间距", callback = handleCallback },
                 { type = "slider", key = "width", db = catDB, min = 10, max = 150, step = 1, text = L["Width"] or "宽度", callback = handleCallback },
                 { type = "slider", key = "height", db = catDB, min = 10, max = 150, step = 1, text = L["Height"] or "高度", callback = handleCallback },
                 { type = "slider", key = "maxPerRow", db = catDB, min = 1, max = 20, step = 1, text = L["Max Icons Per Row"] or "每行最大图标数", callback = handleCallback },
+                { type = "toggle", key = "borderEnable", db = catDB, text = L["Enable Border"] or "显示边框", callback = handleCallback },
+                { type = "slider", key = "borderSize", db = catDB, min = 1, max = 5, step = 1, text = L["Border Size"] or "边框粗细", callback = handleCallback },
+                { type = "color", key = "borderColor", db = catDB, text = L["Border Color"] or "边框颜色", callback = handleCallback },
             } } }
         elseif target == "ExtraMonitor" then
             rowOpts = { { type = "group", key = "sb_ExtraMonitor", text = L["Extra Monitor (Item/Racial)"] or "额外监控 (物品/种族)", childs = {
@@ -346,15 +389,46 @@ function CDMod.Menu:RenderPopupContent(popup, mode, target, db, handleCallback, 
                 { type = "slider", key = "height", db = catDB, min = 10, max = 150, step = 1, text = L["Height"] or "高度", callback = handleCallback },
                 { type = "slider", key = "maxPerRow", db = catDB, min = 1, max = 20, step = 1, text = L["Max Icons Per Row"] or "每行最大图标数", callback = handleCallback },
                 { type = "dropdown", key = "zeroCountBehavior", db = dbEM, text = L["Behavior on Zero Count"] or "层数为0/未装备时", options = { {text=L["Hide Completely"] or "完全隐藏", value="hide"}, {text=L["Desaturate"] or "褪色变灰", value="gray"} }, callback = refreshEMCallback },
+                { type = "toggle", key = "borderEnable", db = catDB, text = L["Enable Border"] or "显示边框", callback = handleCallback },
+                { type = "slider", key = "borderSize", db = catDB, min = 1, max = 5, step = 1, text = L["Border Size"] or "边框粗细", callback = handleCallback },
+                { type = "color", key = "borderColor", db = catDB, text = L["Border Color"] or "边框颜色", callback = handleCallback },
+                { type = "toggle", key = "showHotkey", db = catDB, text = L["Show Hotkey"] or "显示快捷键", callback = handleCallback },
+                { type = "dropdown", key = "hkPosition", db = catDB, text = L["Hotkey Position"] or "快捷键位置", options = { {text="TOPRIGHT", value="TOPRIGHT"}, {text="TOPLEFT", value="TOPLEFT"}, {text="BOTTOMLEFT", value="BOTTOMLEFT"}, {text="BOTTOMRIGHT", value="BOTTOMRIGHT"} }, callback = handleCallback },
+                { type = "slider", key = "hkFontSize", db = catDB, min = 8, max = 24, step = 1, text = L["Hotkey Size"] or "快捷键字号", callback = handleCallback },
+                { type = "color", key = "hkFontColor", db = catDB, text = L["Hotkey Color"] or "快捷键颜色", callback = handleCallback },
             } } }
-        elseif string.sub(target, 1, 9) == "CustomRow" or string.sub(target, 1, 13) == "CustomBuffRow" then
+        elseif string.sub(target, 1, 9) == "CustomRow" then
             rowOpts = { { type = "group", key = "sb_"..target, text = (L["Custom Group"] or "自定义组 (") .. target .. ")", childs = {
                 { type = "slider", key = "iconGap", db = catDB, min = 0, max = 50, step = 1, text = L["Gap"] or "间距" },
                 { type = "slider", key = "width", db = catDB, min = 10, max = 150, step = 1, text = L["Width"] or "宽度" },
                 { type = "slider", key = "height", db = catDB, min = 10, max = 150, step = 1, text = L["Height"] or "高度" },
                 { type = "dropdown", key = "growth", db = catDB, text = L["Growth Direction"] or "生长方向", options = { {text=L["Grow Horizontally"] or "横向生长", value="CENTER_HORIZONTAL"}, {text=L["Grow Up"] or "向上生长", value="UP"}, {text=L["Grow Down"] or "向下生长", value="DOWN"} } },
+                { type = "toggle", key = "borderEnable", db = catDB, text = L["Enable Border"] or "显示边框", callback = handleCallback },
+                { type = "slider", key = "borderSize", db = catDB, min = 1, max = 5, step = 1, text = L["Border Size"] or "边框粗细", callback = handleCallback },
+                { type = "color", key = "borderColor", db = catDB, text = L["Border Color"] or "边框颜色", callback = handleCallback },
+                { type = "toggle", key = "showHotkey", db = catDB, text = L["Show Hotkey"] or "显示快捷键", callback = handleCallback },
+                { type = "dropdown", key = "hkPosition", db = catDB, text = L["Hotkey Position"] or "快捷键位置", options = { {text="TOPRIGHT", value="TOPRIGHT"}, {text="TOPLEFT", value="TOPLEFT"}, {text="BOTTOMLEFT", value="BOTTOMLEFT"}, {text="BOTTOMRIGHT", value="BOTTOMRIGHT"} }, callback = handleCallback },
+                { type = "slider", key = "hkFontSize", db = catDB, min = 8, max = 24, step = 1, text = L["Hotkey Size"] or "快捷键字号", callback = handleCallback },
+                { type = "color", key = "hkFontColor", db = catDB, text = L["Hotkey Color"] or "快捷键颜色", callback = handleCallback },
                 { type = "button", key = "deleteGroup", text = L["Delete This Group"] or "删除此组", callback = function()
-                    local targetArr = (string.sub(target, 1, 13) == "CustomBuffRow") and db.CustomBuffRows or db.CustomRows
+                    local targetArr = db.CustomRows
+                    for i, v in ipairs(targetArr) do if v == target then table.remove(targetArr, i); break end end
+                    WF.db.cooldownCustom[target] = nil
+                    if db.spellOverrides then for k, v in pairs(db.spellOverrides) do if v.category == target then v.category = nil end end end
+                    CDMod.Sandbox.popupMode = nil; popup:Hide(); CDMod:MarkLayoutDirty(true); WF.UI:RefreshCurrentPanel()
+                end }
+            } } }
+        elseif string.sub(target, 1, 13) == "CustomBuffRow" then
+            rowOpts = { { type = "group", key = "sb_"..target, text = (L["Custom Group"] or "自定义增益组 (") .. target .. ")", childs = {
+                { type = "slider", key = "iconGap", db = catDB, min = 0, max = 50, step = 1, text = L["Gap"] or "间距" },
+                { type = "slider", key = "width", db = catDB, min = 10, max = 150, step = 1, text = L["Width"] or "宽度" },
+                { type = "slider", key = "height", db = catDB, min = 10, max = 150, step = 1, text = L["Height"] or "高度" },
+                { type = "dropdown", key = "growth", db = catDB, text = L["Growth Direction"] or "生长方向", options = { {text=L["Grow Horizontally"] or "横向生长", value="CENTER_HORIZONTAL"}, {text=L["Grow Up"] or "向上生长", value="UP"}, {text=L["Grow Down"] or "向下生长", value="DOWN"} } },
+                { type = "toggle", key = "borderEnable", db = catDB, text = L["Enable Border"] or "显示边框", callback = handleCallback },
+                { type = "slider", key = "borderSize", db = catDB, min = 1, max = 5, step = 1, text = L["Border Size"] or "边框粗细", callback = handleCallback },
+                { type = "color", key = "borderColor", db = catDB, text = L["Border Color"] or "边框颜色", callback = handleCallback },
+                { type = "button", key = "deleteGroup", text = L["Delete This Group"] or "删除此组", callback = function()
+                    local targetArr = db.CustomBuffRows
                     for i, v in ipairs(targetArr) do if v == target then table.remove(targetArr, i); break end end
                     WF.db.cooldownCustom[target] = nil
                     if db.spellOverrides then for k, v in pairs(db.spellOverrides) do if v.category == target then v.category = nil end end end

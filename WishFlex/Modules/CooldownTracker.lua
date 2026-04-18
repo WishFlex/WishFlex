@@ -29,6 +29,7 @@ end
 local function IsSecret(v)
     return type(v) == "number" and type(issecretvalue) == "function" and issecretvalue(v)
 end
+
 local function SafeKillRedBorder(frame)
     local function killTex(tex)
         if tex and not tex._wishKilled then
@@ -51,6 +52,7 @@ local function SafeKillRedBorder(frame)
     killTex(frame.CooldownFlash)
     killTex(frame.OutOfRange)
 end
+
 local activeResourceFrames = {}
 
 local function ApplyWishVisuals(frame)
@@ -64,14 +66,25 @@ local function ApplyWishVisuals(frame)
     local spellID = info and (info.overrideSpellID or info.spellID)
     if not spellID then return end
 
+    -- 【免死金牌逻辑】：如果该法术已被隐藏（交由沙盒全权代理），则彻底放弃对原生图标颜色的修改！
+    local cdb = WF.db.cooldownCustom
+    if cdb and cdb.blacklist then
+        if cdb.blacklist[spellID] or cdb.blacklist["CD_"..spellID] or cdb.blacklist["BUFF_"..spellID] or cdb.blacklist[tostring(spellID)] then
+            frame._wishForcedDesat = false
+            return 
+        end
+    end
+
     local db = WF.db.cooldownTracker or {}
     local inDesat = Tracker.desatSpellSet[spellID] and db.enableDesat
     local inRes = Tracker.resourceSpellSet[spellID] and db.enableResource
+    
     if inRes then
         activeResourceFrames[frame] = true
     else
         activeResourceFrames[frame] = nil
     end
+    
     if not inDesat and not inRes then
         if data.wishModified then
             data.isUpdating = true
@@ -80,6 +93,7 @@ local function ApplyWishVisuals(frame)
             frame.Icon:SetVertexColor(1, 1, 1)
             data.wishModified = false
             data.isUpdating = false
+            frame._wishForcedDesat = false 
         end
         return 
     end
@@ -107,9 +121,11 @@ local function ApplyWishVisuals(frame)
     data.isUpdating = true 
     if not isActive then
         if frame.Cooldown then frame.Cooldown:SetDrawSwipe(false) end
+        frame._wishForcedDesat = true 
         if frame.Icon.SetDesaturation then frame.Icon:SetDesaturation(1) else frame.Icon:SetDesaturated(true) end
         frame.Icon:SetVertexColor(0.6, 0.6, 0.6)
     else
+        frame._wishForcedDesat = false
         if frame.Cooldown then frame.Cooldown:SetDrawSwipe(true) end
         if frame.Icon.SetDesaturation then frame.Icon:SetDesaturation(0) else frame.Icon:SetDesaturated(false) end
         frame.Icon:SetVertexColor(1, 1, 1)
@@ -129,10 +145,20 @@ local function HookFrame(frame)
         hooksecurefunc(frame.Cooldown, "Clear", triggerUpdate)
         if frame.Cooldown.SetSwipeColor then hooksecurefunc(frame.Cooldown, "SetSwipeColor", triggerUpdate) end
     end
+    
     if frame.Icon then
-        if frame.Icon.SetDesaturated then hooksecurefunc(frame.Icon, "SetDesaturated", triggerUpdate) end
-        if frame.Icon.SetDesaturation then hooksecurefunc(frame.Icon, "SetDesaturation", triggerUpdate) end
-        if frame.Icon.SetVertexColor then hooksecurefunc(frame.Icon, "SetVertexColor", triggerUpdate) end
+        local function EnforceDesat()
+            if frame._wishForcedDesat and not data.isUpdating then
+                data.isUpdating = true
+                if frame.Icon.SetDesaturation then frame.Icon:SetDesaturation(1) else frame.Icon:SetDesaturated(true) end
+                frame.Icon:SetVertexColor(0.6, 0.6, 0.6)
+                data.isUpdating = false
+            end
+        end
+        
+        if frame.Icon.SetDesaturated then hooksecurefunc(frame.Icon, "SetDesaturated", EnforceDesat) end
+        if frame.Icon.SetDesaturation then hooksecurefunc(frame.Icon, "SetDesaturation", EnforceDesat) end
+        if frame.Icon.SetVertexColor then hooksecurefunc(frame.Icon, "SetVertexColor", EnforceDesat) end
     end
     
     triggerUpdate()
@@ -145,6 +171,7 @@ function Tracker:UpdateCache()
     if db.desatSpells then for id, v in pairs(db.desatSpells) do if v then Tracker.desatSpellSet[tonumber(id)] = true end end end
     if db.resourceSpells then for id, v in pairs(db.resourceSpells) do if v then Tracker.resourceSpellSet[tonumber(id)] = true end end end
 end
+
 function Tracker:RefreshAll(skipCacheUpdate)
     if not WF.db.cooldownTracker then return end
     if not WF.db.cooldownTracker.enable then return end
@@ -164,9 +191,7 @@ function Tracker:RefreshAll(skipCacheUpdate)
     end
 end
 
-local powerUpdatePending = false
 local function DoPowerUpdateRefresh()
-    powerUpdatePending = false
     for frame, _ in pairs(activeResourceFrames) do
         if frame:IsVisible() then
             ApplyWishVisuals(frame)
@@ -195,18 +220,37 @@ local function InitCooldownTracker()
     Tracker:RegisterEvent("PLAYER_TARGET_CHANGED")
     Tracker:RegisterEvent("UNIT_POWER_UPDATE")
     
-Tracker:SetScript("OnEvent", function(self, event, unit)
+    local powerUpdater = CreateFrame("Frame")
+    local powerNextUpdate = 0
+    local powerUpdatePending = false
+
+    powerUpdater:SetScript("OnUpdate", function(self)
+        if powerUpdatePending and GetTime() >= powerNextUpdate then
+            powerUpdatePending = false
+            DoPowerUpdateRefresh()
+        end
+    end)
+
+    Tracker:SetScript("OnEvent", function(self, event, unit)
         if event == "PLAYER_TARGET_CHANGED" then
-            Tracker:RefreshAll(true) -- 目标切换不更新 Cache
+            Tracker:RefreshAll(true) 
         elseif event == "UNIT_POWER_UPDATE" then
-            if unit == "player" and not powerUpdatePending then
+            if unit == "player" then
+                local throttleTime = (InCombatLockdown() or UnitExists("target")) and 0.1 or 0.5
+                powerNextUpdate = GetTime() + throttleTime
                 powerUpdatePending = true
-                local throttleTime = 0.1
-                if not InCombatLockdown() and not UnitExists("target") then
-                    throttleTime = 0.5
-                end
-                
-                C_Timer.After(throttleTime, DoPowerUpdateRefresh)
+            end
+        end
+    end)
+
+    local watchdog = CreateFrame("Frame")
+    local watchdogTimer = 0
+    watchdog:SetScript("OnUpdate", function(self, elapsed)
+        watchdogTimer = watchdogTimer + elapsed
+        if watchdogTimer > 1.0 then
+            watchdogTimer = 0
+            if UnitExists("target") or InCombatLockdown() then
+                Tracker:RefreshAll(true)
             end
         end
     end)

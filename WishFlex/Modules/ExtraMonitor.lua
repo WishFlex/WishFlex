@@ -62,12 +62,9 @@ end
 
 local function ParseDuration(text)
     if not text then return nil end
-    
-    -- 【核心修复】：拦截地心之战 11.0 返回的机密受保护字符串，防止调用 t:match 时报错
     if type(issecretvalue) == "function" and issecretvalue(text) then return nil end
     
     local t = tostring(text)
-    
     local dur = t:match("持续(%d+)秒") or t:match("持续 (%d+) 秒") or t:match("持续%s*(%d+)%s*秒")
     if dur then return tonumber(dur) end
 
@@ -699,7 +696,8 @@ local updatePending = false
 function ExtraMonitor:TriggerUpdate()
     if not updatePending then
         updatePending = true
-        C_Timer.After(0.05, function()
+        -- 【极限优化】：大幅拉长防抖时间，拒绝团本高频技能刷新造成的 CPU 卡顿
+        C_Timer.After(0.25, function()
             updatePending = false
             if ExtraMonitor:IsShown() or (WF.db and WF.db.extraMonitor and WF.db.extraMonitor.enable) then
                 ExtraMonitor:UpdateDisplay()
@@ -727,19 +725,19 @@ local function InitExtraMonitor()
         WF:RegisterEvent("PLAYER_EQUIPMENT_CHANGED", function() ExtraMonitor:ScanTracked(); ExtraMonitor:TriggerUpdate() end)
         WF:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function() ExtraMonitor:ScanTracked(); ExtraMonitor:TriggerUpdate() end)
         
-WF:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit, castGUID, spellID)
-    if unit ~= "player" and unit ~= "pet" then return end
-    if type(spellID) ~= "number" then return end
-    
-    for _, data in ipairs(ExtraMonitor.ActiveTrackers) do
-        if (data.useSpellID == spellID) or (data.id == spellID) then
-            local bDur = SafeGetBuffDuration(data)
-            if bDur then 
-                ExtraMonitor:ShowItemBuff(data) 
+        WF:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit, castGUID, spellID)
+            if unit ~= "player" and unit ~= "pet" then return end
+            if type(spellID) ~= "number" then return end
+            
+            for _, data in ipairs(ExtraMonitor.ActiveTrackers) do
+                if (data.useSpellID == spellID) or (data.id == spellID) then
+                    local bDur = SafeGetBuffDuration(data)
+                    if bDur then 
+                        ExtraMonitor:ShowItemBuff(data) 
+                    end
+                end
             end
-        end
-    end
-end)
+        end)
         
         WF:RegisterEvent("SPELL_UPDATE_COOLDOWN", function() ExtraMonitor:TriggerUpdate() end)
         WF:RegisterEvent("SPELL_UPDATE_CHARGES", function() ExtraMonitor:TriggerUpdate() end)

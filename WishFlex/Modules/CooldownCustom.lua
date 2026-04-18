@@ -321,10 +321,8 @@ local function GetLayoutStateHash()
                     local sid = info and (info.overrideSpellID or info.spellID)
                     local sidNum = tonumber(sid) or 0
                     
-                    local iconObj = type(f.Icon) == "table" and (f.Icon.IsObjectType and f.Icon:IsObjectType("Texture") and f.Icon or f.Icon.Icon) or f.Icon
-                    local hasTex = iconObj and (iconObj:GetTexture() or (iconObj.GetAtlas and iconObj:GetAtlas()))
-                    
-                    if sidNum > 0 and hasTex then
+                    -- 【修复点1】：彻底移除了 hasTex 的哈希判定条件
+                    if sidNum > 0 then
                         local idx = tonumber(f.layoutIndex) or 0
                         local hidden = f._wishFlexHidden and 1 or 0
                         hash = (hash * 31 + sidNum) % 2147483647; hash = (hash * 17 + idx) % 2147483647; hash = hash + hidden; c = c + 1 
@@ -381,11 +379,20 @@ end
 
 local function IsSafeValue(val) return val ~= nil and (type(issecretvalue) ~= "function" or not issecretvalue(val)) end
 
+-- 【修复点2】：动态防缓存API崩溃返回空值的问题
 function CDMod.GetBaseSpellFast(spellID) 
     if not IsSafeValue(spellID) then return nil end
     if BaseSpellCache[spellID] == nil then 
         local base = spellID
-        pcall(function() if C_Spell and C_Spell.GetBaseSpell then base = C_Spell.GetBaseSpell(spellID) or spellID end end)
+        local success, res = pcall(function() return C_Spell and C_Spell.GetBaseSpell and C_Spell.GetBaseSpell(spellID) end)
+        if success and res then base = res end
+        
+        if base == spellID then
+            local sInfo = nil
+            pcall(function() sInfo = C_Spell.GetSpellInfo(spellID) end)
+            if not sInfo or not sInfo.name then return base end
+        end
+        
         BaseSpellCache[spellID] = base 
     end
     return BaseSpellCache[spellID] 
@@ -397,7 +404,6 @@ function CDMod.ResolveActualSpellID(info, isAura)
     return info.overrideSpellID or info.spellID
 end
 
--- 【终极防丢核心】：法术祖宗回溯器，确保子法术/变形法术继承所有分组与覆盖
 function CDMod.GetOverrideData(info, dbO, isAura, keyName)
     if not dbO or type(info) ~= "table" then return nil end
     local prefix = isAura and "BUFF_" or "CD_"
@@ -462,11 +468,32 @@ function CDMod:BuildHiddenCache()
     wipe(self.hiddenCDs); wipe(self.hiddenBuffs)
 
     if WF.db and WF.db.wishMonitor then
-        if WF.db.wishMonitor.skills then for idStr, cfg in pairs(WF.db.wishMonitor.skills) do if cfg.enable and cfg.hideOriginal then self.hiddenCDs[tonumber(idStr)] = true end end end
-        if WF.db.wishMonitor.buffs then for idStr, cfg in pairs(WF.db.wishMonitor.buffs) do if cfg.enable and cfg.hideOriginal then self.hiddenBuffs[tonumber(idStr)] = true end end end
+        if WF.db.wishMonitor.skills then
+            for idStr, cfg in pairs(WF.db.wishMonitor.skills) do
+                if cfg.enable and cfg.hideOriginal then
+                    local idNum = tonumber(idStr) or tonumber(string.match(tostring(idStr), "^(%d+)"))
+                    if idNum then self.hiddenCDs[idNum] = true end
+                end
+            end
+        end
+        if WF.db.wishMonitor.buffs then
+            for idStr, cfg in pairs(WF.db.wishMonitor.buffs) do
+                if cfg.enable and cfg.hideOriginal then
+                    local idNum = tonumber(idStr) or tonumber(string.match(tostring(idStr), "^(%d+)"))
+                    if idNum then self.hiddenBuffs[idNum] = true end
+                end
+            end
+        end
     end
 
-    if WF.db and WF.db.auraGlow and WF.db.auraGlow.spells then for idStr, cfg in pairs(WF.db.auraGlow.spells) do if cfg.hideOriginal then local bID = tonumber(cfg.buffID) or tonumber(idStr); self.hiddenBuffs[bID] = true end end end
+    if WF.db and WF.db.auraGlow and WF.db.auraGlow.spells then
+        for idStr, cfg in pairs(WF.db.auraGlow.spells) do
+            if cfg.hideOriginal then
+                local bID = tonumber(cfg.buffID) or tonumber(string.match(tostring(idStr), "^(%d+)"))
+                if bID then self.hiddenBuffs[bID] = true end
+            end
+        end
+    end
 
     if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.blacklist then 
         for key, isHidden in pairs(WF.db.cooldownCustom.blacklist) do 
@@ -478,7 +505,7 @@ function CDMod:BuildHiddenCache()
                     local idNum = tonumber(string.sub(key, 6))
                     if idNum then self.hiddenBuffs[idNum] = true end
                 else
-                    local idNum = tonumber(key)
+                    local idNum = tonumber(key) or tonumber(string.match(tostring(key), "^(%d+)"))
                     if idNum then self.hiddenCDs[idNum] = true; self.hiddenBuffs[idNum] = true end
                 end
             end 
@@ -696,9 +723,7 @@ function CDMod:BroadcastWidth()
                 if f:IsShown() and not f._wishFlexHidden then 
                     local info = f.cooldownInfo or (f.GetCooldownInfo and f:GetCooldownInfo())
                     local sid = info and (info.overrideSpellID or info.spellID)
-                    local iconObj = type(f.Icon) == "table" and (f.Icon.IsObjectType and f.Icon:IsObjectType("Texture") and f.Icon or f.Icon.Icon) or f.Icon
-                    local hasTex = iconObj and (iconObj:GetTexture() or (iconObj.GetAtlas and iconObj:GetAtlas()))
-                    if sid and hasTex then actualCount = actualCount + 1 end
+                    if sid then actualCount = actualCount + 1 end
                 end
             end
             if WF.ExtraMonitorAPI and WF.ExtraMonitorAPI.FramePool then
@@ -813,10 +838,9 @@ function CDMod:ForceBuffsLayout()
             if f:IsShown() then
                 local info = f.cooldownInfo or (f.GetCooldownInfo and f:GetCooldownInfo())
                 local sid = CDMod.ResolveActualSpellID(info, true)
-                local iconObj = type(f.Icon) == "table" and (f.Icon.IsObjectType and f.Icon:IsObjectType("Texture") and f.Icon or f.Icon.Icon) or f.Icon
-                local hasTex = iconObj and (iconObj:GetTexture() or (iconObj.GetAtlas and iconObj:GetAtlas()))
                 
-                if not sid or not hasTex then CDMod.PhysicalHideFrame(f) else
+                -- 【修复点3】：剥离了 hasTex，只通过 sid 判断，拯救登录隐身bug
+                if not sid then CDMod.PhysicalHideFrame(f) else
                     local tCat = defCat; 
                     local dbO = db.spellOverrides; 
                     local oCat = CDMod.GetOverrideData(info, dbO, true, "category")
@@ -934,10 +958,9 @@ function CDMod:UpdateAllLayouts()
             if f:IsShown() then 
                 local info = f.cooldownInfo or (f.GetCooldownInfo and f:GetCooldownInfo())
                 local sid = CDMod.ResolveActualSpellID(info, false)
-                local iconObj = type(f.Icon) == "table" and (f.Icon.IsObjectType and f.Icon:IsObjectType("Texture") and f.Icon or f.Icon.Icon) or f.Icon
-                local hasTex = iconObj and (iconObj:GetTexture() or (iconObj.GetAtlas and iconObj:GetAtlas()))
                 
-                if not sid or not hasTex then CDMod.PhysicalHideFrame(f) else
+                -- 【修复点4】：剥离了 hasTex，只通过 sid 判断，拯救登录隐身bug
+                if not sid then CDMod.PhysicalHideFrame(f) else
                     local tCat = defCat; 
                     local dbO = db.spellOverrides; 
                     local oCat = CDMod.GetOverrideData(info, dbO, false, "category")
@@ -1107,7 +1130,6 @@ local function InitCooldownCustom()
                 end
             end)
             
-            -- 【终极防断流挂钩】：确保暴雪原生布局刷新时，无条件触发我们的引擎
             if viewer.UpdateLayout then
                 hooksecurefunc(viewer, "UpdateLayout", function()
                     CDMod:MarkLayoutDirty(false)
@@ -1120,6 +1142,23 @@ local function InitCooldownCustom()
         if WF.db.cooldownCustom.enable == false then return end 
         CDMod:SyncSpecGroups()
         CDMod:MarkLayoutDirty(true)
+    end)
+    
+    -- 【修复点5】：追加登录缓冲事件和术士/猎人专属召唤事件，彻底解决图标不显示的假死Bug
+    WF:RegisterEvent("PLAYER_ENTERING_WORLD", function()
+        if WF.db.cooldownCustom.enable == false then return end 
+        C_Timer.After(1.0, function() CDMod:MarkLayoutDirty(true) end)
+    end)
+
+    WF:RegisterEvent("SPELLS_CHANGED", function()
+        if WF.db.cooldownCustom.enable == false then return end 
+        CDMod:MarkLayoutDirty(true)
+    end)
+    
+    WF:RegisterEvent("UNIT_PET", function(unit)
+        if unit == "player" and WF.db.cooldownCustom.enable ~= false then 
+            C_Timer.After(0.5, function() CDMod:MarkLayoutDirty(true) end)
+        end
     end)
     
     CDMod:MarkLayoutDirty(true)

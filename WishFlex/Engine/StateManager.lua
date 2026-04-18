@@ -18,10 +18,17 @@ local function IsSafeValue(val)
     return true
 end
 
+-- 【极限优化2】：引入 BaseSpellCache 缓存。原代码每次更新都在高频循环里调用 `C_Spell.GetBaseSpell`，加入缓存后开销降至 0。
+local BaseSpellCache = {}
 local function GetBaseSpellFast(spellID)
     if not IsSafeValue(spellID) then return nil end
+    if BaseSpellCache[spellID] then return BaseSpellCache[spellID] end
+    
     local base = spellID
-    pcall(function() if C_Spell and C_Spell.GetBaseSpell then base = C_Spell.GetBaseSpell(spellID) or spellID end end)
+    local ok, res = pcall(function() return C_Spell and C_Spell.GetBaseSpell and C_Spell.GetBaseSpell(spellID) end)
+    if ok and res then base = res end
+    
+    BaseSpellCache[spellID] = base
     return base
 end
 
@@ -87,6 +94,11 @@ function WF.StateEngine:GetState(spellID)
     return CurrentStateCache[spellID] and CurrentStateCache[spellID].fullState
 end
 
+-- 【极限优化3】：提纯出静态检查函数，不再使用动态闭包 function() return ... end
+local function CheckGreater(val) return type(val) == "number" and val > 1 end
+local function CheckLess(val, max) return val < max end
+local function CheckValidDur(val) return type(val) == "number" and val > 1.5 end
+
 function WF.StateEngine:UpdateSpellState(spellID)
     local config = TrackedSpells[spellID]
     if not config then return end
@@ -150,7 +162,8 @@ function WF.StateEngine:UpdateSpellState(spellID)
         local isCharge = false
         local mc = chInfo and chInfo.maxCharges
         
-        local success, isGreater = pcall(function() return type(mc) == "number" and mc > 1 end)
+        -- 使用静态保护函数调用 pcall，杜绝每次循环产生闭包垃圾
+        local success, isGreater = pcall(CheckGreater, mc)
         
         if success and isGreater then
             isCharge = true; WF.StateEngine.MaxChargeCache[spellID] = mc
@@ -168,14 +181,16 @@ function WF.StateEngine:UpdateSpellState(spellID)
             state.count = chInfo and chInfo.currentCharges or 0
             state.durObjC = C_Spell.GetSpellChargeDuration(spellID)
             
-            local cSuccess, isLess = pcall(function() return state.count < state.maxVal end)
+            -- 同上，保护计算
+            local cSuccess, isLess = pcall(CheckLess, state.count, state.maxVal)
             if not cSuccess or isLess or (tonumber(state.count) and tonumber(state.count) > 0) then state.isActive = true end
         else
             state.trackType = "cooldown"
             local cInfo = C_Spell.GetSpellCooldown(spellID)
             if cInfo then
                 local dur = cInfo.duration
-                local dSuccess, isValid = pcall(function() return type(dur) == "number" and dur > 1.5 end)
+                -- 同上，保护计算
+                local dSuccess, isValid = pcall(CheckValidDur, dur)
                 if not dSuccess or isValid then
                     state.isActive = true
                     state.durObjC = C_Spell.GetSpellCooldownDuration(spellID)
@@ -212,9 +227,12 @@ function WF.StateEngine:UpdateSpellState(spellID)
     local st = 0
     if state.durObjC then
         local rawSt = nil
-        if type(state.durObjC) == "table" then rawSt = state.durObjC.startTime
+        if type(state.durObjC) == "table" then 
+            rawSt = state.durObjC.startTime
         elseif type(state.durObjC) == "userdata" and type(state.durObjC.GetCooldownStartTime) == "function" then
-            pcall(function() rawSt = state.durObjC:GetCooldownStartTime() end)
+            -- 优化：直接传入对象去安全调用，避免嵌套闭包
+            local ok, res = pcall(state.durObjC.GetCooldownStartTime, state.durObjC)
+            if ok then rawSt = res end
         end
         if rawSt ~= nil and not IsSafeValue(rawSt) then isSecretTime = true
         else st = rawSt or 0 end
@@ -240,12 +258,18 @@ function WF.StateEngine:UpdateSpellState(spellID)
         cache.sCount = sCount
         cache.sMax = sMax
         cache.st = st
-
-        WF:FireEvent("WF_SPELL_STATE_CHANGED", spellID, state)
+        
+        if WF.EventCallbacks and WF.EventCallbacks["WF_SPELL_STATE_CHANGED"] then
+            for _, callback in ipairs(WF.EventCallbacks["WF_SPELL_STATE_CHANGED"]) do
+                xpcall(callback, geterrorhandler(), "WF_SPELL_STATE_CHANGED", spellID, state)
+            end
+        end
     end
 end
 
 local isUpdateScheduled = false
+local layoutUpdater = CreateFrame("Frame") 
+
 local function DoTriggerAllUpdates()
     isUpdateScheduled = false
     
@@ -276,7 +300,11 @@ end
 function WF.StateEngine:TriggerAllUpdates()
     if isUpdateScheduled then return end
     isUpdateScheduled = true
-    C_Timer.After(0.05, DoTriggerAllUpdates)
+    
+    layoutUpdater:SetScript("OnUpdate", function(self)
+        self:SetScript("OnUpdate", nil) 
+        DoTriggerAllUpdates()
+    end)
 end
 
 function WF.StateEngine:TriggerViewerUpdate()
@@ -287,6 +315,7 @@ end
 local function SafeHook(object, funcName, callback)
     if object and object[funcName] and type(object[funcName]) == "function" then hooksecurefunc(object, funcName, callback) end
 end
+
 WF:RegisterEvent("UNIT_AURA", function(e, unit, updateInfo) 
     if unit == "player" then 
         if not InCombatLockdown() and not UnitExists("target") and updateInfo then
@@ -294,7 +323,6 @@ WF:RegisterEvent("UNIT_AURA", function(e, unit, updateInfo)
             
             if updateInfo.addedAuras then
                 for _, aura in ipairs(updateInfo.addedAuras) do 
-                    -- 【修复】：拦截 issecretvalue 报错
                     if IsSafeValue(aura.spellId) and TrackedSpells[aura.spellId] then 
                         isRelevant = true; break 
                     end 

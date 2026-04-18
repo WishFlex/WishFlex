@@ -1,28 +1,143 @@
 local AddonName, ns = ...
-local WF = _G.WishFlex
-local L = WF.L
-local EM = WF.ExtraMonitorAPI
-if not EM then return end
+local WF = _G.WishFlex or ns.WF
+local L = ns.L or {}
 
-local LSM = LibStub("LibSharedMedia-3.0", true)
-local _, playerClass = UnitClass("player")
-local ClassColor = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[playerClass] or {r=1, g=1, b=1}
-local C_R, C_G, C_B = ClassColor.r, ClassColor.g, ClassColor.b
+local ExtraMonitor = CreateFrame("Frame", "WishFlex_ExtraMonitor", UIParent)
+ExtraMonitor:Hide() 
+WF.ExtraMonitorAPI = ExtraMonitor
 
-EM.Sandbox = EM.Sandbox or { popupMode = nil }
-WF.UI:RegisterMenu({ id = "ExtraMonitor", parent = "Combat", name = L["Extra CD Monitor"] or "额外监控 (物品/种族)", key = "extraMonitor_Global", order = 35 })
-
-local RACE_RACIALS = {
-    Scourge            = { 7744 }, Tauren             = { 20549 }, Orc                = { 20572, 33697, 33702 },
-    BloodElf           = { 202719, 50613, 25046, 69179, 80483, 155145, 129597, 232633, 28730 },
-    Dwarf              = { 20594 }, Troll              = { 26297 }, Draenei            = { 28880 },
-    NightElf           = { 58984 }, Human              = { 59752 }, DarkIronDwarf      = { 265221 },
-    Gnome              = { 20589 }, HighmountainTauren = { 69041 }, Worgen             = { 68992 },
-    Goblin             = { 69070 }, Pandaren           = { 107079 }, MagharOrc          = { 274738 },
-    LightforgedDraenei = { 255647 }, VoidElf            = { 256948 }, KulTiran           = { 287712 },
-    ZandalariTroll     = { 291944 }, Vulpera            = { 312411 }, Mechagnome         = { 312924 },
-    Dracthyr           = { 357214, 368970 }, EarthenDwarf       = { 436344 }, Haranir            = { 1287685 },
+local defaults = {
+    enable = true,
+    attachToPlayer = true, 
+    iconWidth = 30,
+    iconHeight = 25,
+    iconGap = 1,
+    maxPerRow = 6,
+    autoTrinkets = true,
+    autoRacial = true,
+    zeroCountBehavior = "hide",
+    stackPosition = "BOTTOM",
+    stackXOffset = 0,
+    stackYOffset = -6,
+    cdPosition = "CENTER",
+    cdXOffset = 0,
+    cdYOffset = 0,
+    customItems = {
+        [5512] = true,     
+        [241308] = true,   
+        [241304] = true,   
+    },
+    customSpells = {},
+    customOrder = {},
 }
+
+local MANUAL_ITEM_ALTERNATE_EXCEPTION_GROUPS = {
+    { 5512, 224464 }, 
+}
+
+local function GetResolvedItemID(configItemID)
+    if not configItemID or configItemID <= 0 then return configItemID end
+    if GetItemCount(configItemID) > 0 or IsEquippedItem(configItemID) then return configItemID end
+
+    for _, group in ipairs(MANUAL_ITEM_ALTERNATE_EXCEPTION_GROUPS) do
+        local inGroup = false
+        for _, id in ipairs(group) do if id == configItemID then inGroup = true; break end end
+        if inGroup then
+            for _, id in ipairs(group) do if id ~= configItemID and (GetItemCount(id) > 0 or IsEquippedItem(id)) then return id end end
+        end
+    end
+
+    local _, refSpell = C_Item.GetItemSpell(configItemID)
+    if refSpell and refSpell > 0 then
+        for _, delta in ipairs({ 1, -1 }) do
+            local oid = configItemID + delta
+            if oid > 0 and GetItemCount(oid) > 0 then
+                local _, sp = C_Item.GetItemSpell(oid)
+                if sp == refSpell then return oid end
+            end
+        end
+    end
+    return configItemID
+end
+
+local function ParseDuration(text)
+    if not text then return nil end
+    if type(issecretvalue) == "function" and issecretvalue(text) then return nil end
+    
+    local t = tostring(text)
+    
+    local dur = t:match("持续(%d+)秒") or t:match("持续 (%d+) 秒") or t:match("持续%s*(%d+)%s*秒")
+    if dur then return tonumber(dur) end
+
+    dur = t:match("持续(%d+)sec") or t:match("持续 (%d+) sec") or t:match("for%s*(%d+)%s*sec") or t:match("for%s*(%d+)%s*second")
+    if dur then return tonumber(dur) end
+
+    dur = t:match("(%d+)秒") or t:match("(%d+) 秒") or t:match("(%d+) sec")
+    if dur then
+        local num = tonumber(dur)
+        if num and num >= 5 and num <= 60 then return num end
+    end
+    return nil
+end
+
+local scanTooltip
+local function GetItemDuration(itemID, spellID, tType)
+    if spellID then
+        local desc = nil
+        pcall(function() if C_Spell and C_Spell.GetSpellDescription then desc = C_Spell.GetSpellDescription(spellID) end end)
+        if desc and desc ~= "" then
+            local dur = ParseDuration(desc)
+            if dur then return dur end
+        end
+        if C_TooltipInfo and C_TooltipInfo.GetSpellByID then
+            local tInfo = C_TooltipInfo.GetSpellByID(spellID)
+            if tInfo and tInfo.lines then
+                for _, line in ipairs(tInfo.lines) do
+                    if line.leftText then
+                        local dur = ParseDuration(line.leftText)
+                        if dur then return dur end
+                    end
+                end
+            end
+        end
+    end
+
+    if tType == "item" and itemID then
+        if not scanTooltip then
+            scanTooltip = CreateFrame("GameTooltip", "WF_ItemBuffScanTooltip", UIParent, "GameTooltipTemplate")
+            scanTooltip:SetOwner(UIParent, "ANCHOR_NONE")
+        end
+        scanTooltip:ClearLines()
+        scanTooltip:SetItemByID(itemID)
+        for i = 1, scanTooltip:NumLines() do
+            local line = _G["WF_ItemBuffScanTooltipTextLeft" .. i]
+            if line then
+                local text = line:GetText()
+                if text and text ~= "" then
+                    local dur = ParseDuration(text)
+                    if dur then return dur end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function SafeGetBuffDuration(data)
+    if data.buffDuration then return data.buffDuration end
+    local tID = data.type == "item" and data.id or nil
+    local sID = data.useSpellID or (data.type == "spell" and data.id or nil)
+    local dur = GetItemDuration(tID, sID, data.type)
+    if dur then
+        data.buffDuration = dur
+        return dur
+    end
+    return nil
+end
+
+local EMPTY_TABLE = {}
+local DEFAULT_STACK_COLOR = {r=1, g=1, b=1, a=1}
+local DEFAULT_CD_COLOR = {r=1, g=1, b=1, a=1}
 
 local function IsSpellAvailable(spellID)
     if not spellID then return false end
@@ -34,9 +149,42 @@ local function IsSpellAvailable(spellID)
             local isUsable, noMana = C_Spell.IsSpellUsable(spellID)
             if isUsable or noMana then isKnown = true end
         end
+        if not isKnown and IsSpellKnownOrOverridesKnown then isKnown = IsSpellKnownOrOverridesKnown(spellID) end
     end)
     return isKnown
 end
+
+local function IsItemAvailable(itemID)
+    if not itemID then return false end
+    local isKnown = false
+    pcall(function()
+        if C_Item and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
+        if C_Item and C_Item.DoesItemExistByID and C_Item.DoesItemExistByID(itemID) then
+            if IsEquippedItem(itemID) then isKnown = true end
+            if not isKnown and GetItemCount(itemID) > 0 then isKnown = true end
+        end
+    end)
+    return isKnown
+end
+
+local function GetDB()
+    if not WF.db.extraMonitor then WF.db.extraMonitor = {} end
+    for k, v in pairs(defaults) do
+        if WF.db.extraMonitor[k] == nil then
+            if type(v) == "table" then
+                WF.db.extraMonitor[k] = {}
+                for subK, subV in pairs(v) do WF.db.extraMonitor[k][subK] = subV end
+            else WF.db.extraMonitor[k] = v end
+        end
+    end
+    if WF.db.extraMonitor.iconSize then
+        WF.db.extraMonitor.iconWidth = WF.db.extraMonitor.iconSize
+        WF.db.extraMonitor.iconHeight = WF.db.extraMonitor.iconSize
+        WF.db.extraMonitor.iconSize = nil
+    end
+    return WF.db.extraMonitor
+end
+ExtraMonitor.GetDB = GetDB
 
 local function ApplyTexCoord(texture, w, h)
     if not texture or not w or not h or h == 0 then return end
@@ -46,435 +194,591 @@ local function ApplyTexCoord(texture, w, h)
     else local offset = (1 - (w/h)) / 2 * 0.84; texture:SetTexCoord(0.08 + offset, 0.92 - offset, 0.08, 0.92) end
 end
 
-local function CreateSandboxContextMenu()
-    if WF.UI.EM_SandboxMenu then return WF.UI.EM_SandboxMenu end
-    local m = CreateFrame("Frame", "WF_EM_SandboxContextMenu", UIParent, "BackdropTemplate")
-    m:SetFrameStrata("TOOLTIP"); m:SetSize(260, 200)
-    WF.UI.Factory.ApplyFlatSkin(m, 0.05, 0.05, 0.05, 0.98, C_R, C_G, C_B, 1)
-    m.title = m:CreateFontString(nil, "OVERLAY"); m.title:SetFont(STANDARD_TEXT_FONT, 14, "OUTLINE")
-    m.title:SetPoint("TOP", 0, -12); m.title:SetTextColor(0.7, 0.7, 0.7)
-    m.closeBtn = CreateFrame("Button", nil, m); m.closeBtn:SetSize(16, 16); m.closeBtn:SetPoint("TOPRIGHT", -5, -5)
-    local cTex = m.closeBtn:CreateTexture(nil, "ARTWORK"); cTex:SetAllPoints()
-    cTex:SetTexture("Interface\\AddOns\\WishFlex\\Media\\Icons\\off.tga"); cTex:SetVertexColor(0.6, 0.6, 0.6)
-    m.closeBtn:SetScript("OnEnter", function() cTex:SetVertexColor(1, 0.2, 0.2) end)
-    m.closeBtn:SetScript("OnLeave", function() cTex:SetVertexColor(0.6, 0.6, 0.6) end)
-    m.closeBtn:SetScript("OnClick", function() m:Hide() end)
-    m.items = {}
-    m:SetScript("OnUpdate", function(self)
-        if self:IsShown() and not self:IsMouseOver() then
-            if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then self:Hide() end
+ExtraMonitor.ActiveTrackers = {}
+local FramePool = {}
+ExtraMonitor.FramePool = FramePool 
+ExtraMonitor.ItemBuffPool = {}
+
+local function FindCDText(f, ...)
+    for i = 1, select("#", ...) do
+        local region = select(i, ...)
+        if region and region.IsObjectType and region:IsObjectType("FontString") and region ~= f.count and region ~= f.dummyText then 
+            return region
         end
-    end)
-    WF.UI.EM_SandboxMenu = m
-    return m
+    end
+    return nil
 end
 
-local function ShowSandboxMenu(btn, data, titleText)
-    local m = CreateSandboxContextMenu(); m:Hide()
-    m.title:SetText(titleText or "监控管理"); m.title:Show()
-    for _, b in ipairs(m.items) do b:Hide() end
-    local yOff = -40
-    local db = EM.GetDB()
-    local toggles = {}
+local function UpdateItemBuffFontAndSettings(f)
+    local cdDB = WF.db and WF.db.cooldownCustom or EMPTY_TABLE
+    local tCatCfg = cdDB.ItemBuff or {}
     
-    local function RefreshAll()
-        EM:ScanTracked(); EM:UpdateDisplay()
-        WF.UI:RefreshCurrentPanel()
-        m:Hide()
-    end
-
-    if data.isTrinket then table.insert(toggles, { text = "自动识别主动饰品", isToggle = true, state = db.autoTrinkets, action = function() db.autoTrinkets = not db.autoTrinkets; RefreshAll() end })
-    elseif data.isRacial then table.insert(toggles, { text = "自动识别种族技能", isToggle = true, state = db.autoRacial, action = function() db.autoRacial = not db.autoRacial; RefreshAll() end })
-    elseif data.type == "item" then
-        local isEnabled = db.customItems[data.id]
-        table.insert(toggles, { text = "启用此物品监控", isToggle = true, state = isEnabled, action = function() db.customItems[data.id] = not db.customItems[data.id]; RefreshAll() end })
-        table.insert(toggles, { text = "|cffff0000彻底删除此监控|r", isToggle = false, action = function() db.customItems[data.id] = nil; RefreshAll() end })
-    elseif data.type == "spell" then
-        local isEnabled = db.customSpells[data.id]
-        table.insert(toggles, { text = "启用此法术监控", isToggle = true, state = isEnabled, action = function() db.customSpells[data.id] = not db.customSpells[data.id]; RefreshAll() end })
-        table.insert(toggles, { text = "|cffff0000彻底删除此监控|r", isToggle = false, action = function() db.customSpells[data.id] = nil; RefreshAll() end })
-    end
-
-    if #toggles == 0 then return end
-    
-    for i, tData in ipairs(toggles) do
-        local b = m.items[i]
-        if not b then 
-            b = CreateFrame("Button", nil, m, "BackdropTemplate"); b:SetSize(240, 26)
-            b.hoverBg = b:CreateTexture(nil, "BACKGROUND"); b.hoverBg:SetColorTexture(C_R, C_G, C_B, 0.25); b.hoverBg:Hide()
-            b.text = b:CreateFontString(nil, "OVERLAY"); b.text:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
-            b.track = b:CreateTexture(nil, "ARTWORK"); b.track:SetSize(26, 12)
-            b.thumb = b:CreateTexture(nil, "OVERLAY"); b.thumb:SetSize(10, 10)
-            table.insert(m.items, b) 
-        end
-        b.text:SetText(tData.text)
-        b:SetScript("OnEnter", function(self) self.hoverBg:Show(); self.text:SetTextColor(1, 1, 1) end)
-        b:SetScript("OnLeave", function(self) self.hoverBg:Hide(); self.text:SetTextColor(0.7, 0.7, 0.7) end)
-        b:SetScript("OnClick", tData.action)
-
-        if tData.isToggle then
-            b.track:Show(); b.thumb:Show(); b.text:ClearAllPoints(); b.text:SetPoint("LEFT", 45, 0); b.track:ClearAllPoints(); b.track:SetPoint("LEFT", 10, 0); b.thumb:ClearAllPoints()
-            if tData.state then b.track:SetColorTexture(C_R, C_G, C_B, 1); b.thumb:SetColorTexture(1, 1, 1, 1); b.thumb:SetPoint("LEFT", b.track, "LEFT", 15, 0); b.text:SetTextColor(1, 1, 1) else b.track:SetColorTexture(0.2, 0.2, 0.2, 1); b.thumb:SetColorTexture(0.6, 0.6, 0.6, 1); b.thumb:SetPoint("LEFT", b.track, "LEFT", 1, 0); b.text:SetTextColor(0.6, 0.6, 0.6) end
-        else
-            b.track:Hide(); b.thumb:Hide(); b.text:ClearAllPoints(); b.text:SetPoint("CENTER", 0, 0); b.text:SetTextColor(0.8, 0.8, 0.8)
-        end
-        b.hoverBg:ClearAllPoints(); b.hoverBg:SetPoint("TOPLEFT", 10, 0); b.hoverBg:SetPoint("BOTTOMRIGHT", -10, 0)
-        b:ClearAllPoints(); b:SetPoint("TOP", 0, yOff); b:Show()
-        WF.UI.Factory.ApplyFlatSkin(b, 0,0,0,0, 0,0,0,0)
-        yOff = yOff - 28
+    local cdSize = tonumber(tCatCfg.cdFontSize) or 18
+    local outline = cdDB.countFontOutline or "OUTLINE"
+    local fontPath = STANDARD_TEXT_FONT
+    if LibStub then
+        local LSM = LibStub("LibSharedMedia-3.0", true)
+        if LSM and cdDB.countFont then fontPath = LSM:Fetch('font', cdDB.countFont) or STANDARD_TEXT_FONT end
     end
     
-    m:SetHeight(math.abs(yOff) + 15)
-    local cx, cy = GetCursorPosition(); local scale = UIParent:GetEffectiveScale()
-    m:ClearAllPoints(); m:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", (cx/scale) + 10, (cy/scale) - 10)
-    m:Show()
+    local cdColor = tCatCfg.cdFontColor or {r=0, g=1, b=0, a=1}
+
+    local cdText = f.cdTextObj
+    if not cdText then
+        if f.cd and f.cd.GetCountdownFontString then cdText = f.cd:GetCountdownFontString() end
+        if not cdText and f.cd then cdText = FindCDText(f, f.cd:GetRegions()) end
+        if cdText then f.cdTextObj = cdText end
+    end
+    
+    if cdText then
+        pcall(cdText.SetFont, cdText, fontPath, cdSize, outline)
+        cdText:SetTextColor(cdColor.r, cdColor.g, cdColor.b, cdColor.a or 1)
+    end
 end
 
-WF.UI:RegisterPanel("extraMonitor_Global", function(scrollChild, ColW)
-    local db = EM.GetDB()
-    EM:ScanTracked()
-    
-    local currentY = -15
+function ExtraMonitor:ShowItemBuff(data)
+    local id = data.id
+    local buffDur = SafeGetBuffDuration(data)
+    if not buffDur then return end
 
-    local function Refresh()
-        EM:ScanTracked(); EM:UpdateDisplay()
-        WF.UI:RefreshCurrentPanel()
+    local f = ExtraMonitor.ItemBuffPool[id]
+    if not f then
+        f = CreateFrame("Button", "WF_ItemBuffIcon_"..id, UIParent, "BackdropTemplate")
+        f:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1})
+        f:SetBackdropBorderColor(0, 0, 0, 1)
+        
+        f.icon = f:CreateTexture(nil, "BACKGROUND")
+        f.icon:SetAllPoints()
+        f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        
+        f.cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+        f.cd:SetAllPoints()
+        f.cd:SetDrawEdge(false)
+        f.cd:SetReverse(true)
+        f.cd:SetHideCountdownNumbers(false)
+        
+        f.isExtraMonitor = true 
+        f.id = id
+        f:Hide()
+        ExtraMonitor.ItemBuffPool[id] = f
+    end
+    
+    local tex = (data.type == "item") and C_Item.GetItemIconByID(data.id) or C_Spell.GetSpellTexture(data.id)
+    if tex then f.icon:SetTexture(tex) end
+    
+    UpdateItemBuffFontAndSettings(f)
+    if ActionButton_ShowOverlayGlow then ActionButton_ShowOverlayGlow(f) end
+    
+    pcall(f.cd.SetCooldown, f.cd, GetTime(), buffDur)
+    
+    f.isBuffActive = true
+    f:Show()
+    
+    if WF.CooldownCustomAPI then WF.CooldownCustomAPI:MarkLayoutDirty(true) end
+    
+    if id == "dummy_test" then
+        if f.timer then f.timer:Cancel() end
+        return
     end
 
-    local btnHelp = scrollChild.EM_HelpBtn or WF.UI.Factory:CreateFlatButton(scrollChild, "排版与操作设置", function()
-        EM.Sandbox.popupMode = "GLOBAL"
-        WF.UI:RefreshCurrentPanel()
+    if f.timer then f.timer:Cancel() end
+    f.timer = C_Timer.NewTimer(buffDur, function()
+        f.isBuffActive = false
+        f:Hide()
+        if ActionButton_HideOverlayGlow then ActionButton_HideOverlayGlow(f) end
+        if WF.CooldownCustomAPI then WF.CooldownCustomAPI:MarkLayoutDirty(true) end
     end)
-    scrollChild.EM_HelpBtn = btnHelp
-    btnHelp:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 15, currentY); btnHelp:SetWidth(180); btnHelp:Show()
+end
 
-    btnHelp:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("【沙盒操作指南】", 1, 0.82, 0); GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("|cff00ff00[左键点击]|r 图标/按钮：打开基础排版设置", 1, 1, 1)
-        GameTooltip:AddLine("|cff00ccff[左键拖动]|r 任意图标：通过绿色参考线插入排版", 1, 1, 1)
-        GameTooltip:AddLine("|cffffaa00[右键点击]|r 任意图标：管理独立开关", 1, 1, 1)
-        GameTooltip:Show()
-    end)
-    btnHelp:SetScript("OnLeave", function() GameTooltip:Hide() end)
+function ExtraMonitor:GetTrackedItemsForSandbox()
+    local parentEnabled = WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable ~= false
+    if not parentEnabled or (WF.db and WF.db.extraMonitor and WF.db.extraMonitor.enable == false) then return {} end
 
-    currentY = currentY - 35
-
-    local previewBox = scrollChild.EM_Sandbox_Box or CreateFrame("Frame", nil, scrollChild, "BackdropTemplate")
-    previewBox:SetPoint("TOPLEFT", 15, currentY)
-    WF.UI.Factory.ApplyFlatSkin(previewBox, 0.05, 0.05, 0.05, 1, 0, 0, 0, 1); previewBox:Show(); scrollChild.EM_Sandbox_Box = previewBox
-
-    local title = previewBox.title or previewBox:CreateFontString(nil, "OVERLAY")
-    title:SetFont(STANDARD_TEXT_FONT, 14, "OUTLINE"); title:SetPoint("TOPLEFT", 10, -10)
-    title:SetText("|cff00ccff[Live Sandbox]|r 额外监控拖拽排版沙盒"); title:SetTextColor(1, 0.82, 0)
-    previewBox.title = title
-    
-    local ind = previewBox.dropIndicator
-    if not ind then
-        ind = CreateFrame("Frame", nil, previewBox, "BackdropTemplate")
-        local tex = ind:CreateTexture(nil, "OVERLAY")
-        tex:SetAllPoints(); tex:SetColorTexture(0, 1, 0, 1)
-        ind.tex = tex; ind:Hide()
-        previewBox.dropIndicator = ind
+    local db = self.GetDB(); local trackers = {}; local order = db.customOrder or EMPTY_TABLE
+    local function AddEM(tStr, id, isRac, isTrin, en)
+        local idStr = tostring(id)
+        local nameStr = (tStr == "item") and (C_Item.GetItemNameByID(id) or "Item:"..id) or ((C_Spell.GetSpellInfo(id) and C_Spell.GetSpellInfo(id).name) or "Spell:"..id)
+        local iconTex = (tStr == "item") and C_Item.GetItemIconByID(id) or C_Spell.GetSpellTexture(id)
+        local dbKey = tStr .. "_" .. idStr
+        table.insert(trackers, { idStr = idStr, dbKey = dbKey, name = nameStr, icon = iconTex, defaultIdx = order[dbKey] or 999, type = tStr, isRacial = isRac, isTrinket = isTrin, enabled = en })
     end
-
-    local py = -40
-    local px = 15
-    local w = tonumber(db.iconWidth) or 36
-    local h = tonumber(db.iconHeight) or 36
-    local gap = tonumber(db.iconGap) or 1
-    local maxRow = math.floor((ColW - 60) / (w + gap))
-
-    if not previewBox.pool then previewBox.pool = {} end
-    for _, v in ipairs(previewBox.pool) do v:Hide() end
-
-    -- 【UI 沙盒去重】：解决设置面板预览出现双重图标的问题
-    local uiTrackers = {}
-    local seenSpells = {}
-    local seenItems = {}
     
-    local myRacials = {}
+    local racials = ns.RACE_RACIALS or EMPTY_TABLE
     local _, race = UnitRace("player")
-    if race and RACE_RACIALS[race] then 
-        for _, spellID in ipairs(RACE_RACIALS[race]) do 
-            if IsSpellAvailable(spellID) then table.insert(myRacials, spellID) end 
+    local seenRacialNames = {} 
+    if race and racials[race] then 
+        for _, spellID in ipairs(racials[race]) do 
+            if IsSpellAvailable(spellID) then 
+                local sInfo = C_Spell.GetSpellInfo(spellID)
+                local sName = sInfo and sInfo.name or tostring(spellID)
+                if not seenRacialNames[sName] then
+                    seenRacialNames[sName] = true
+                    AddEM("spell", spellID, true, false, db.autoRacial) 
+                end
+            end 
         end 
-    end
-    
-    for _, sid in ipairs(myRacials) do 
-        if not seenSpells[sid] then
-            seenSpells[sid] = true
-            table.insert(uiTrackers, { type="spell", id=sid, isRacial=true, enabled=db.autoRacial }) 
-        end
     end
     
     for slot = 13, 14 do
         local itemID = GetInventoryItemID("player", slot)
-        if itemID then 
-            local _, useSpellID = C_Item.GetItemSpell(itemID); 
-            if useSpellID and useSpellID > 0 and not seenItems[itemID] then 
-                seenItems[itemID] = true
-                table.insert(uiTrackers, { type="item", id=itemID, slot=slot, isTrinket=true, enabled=db.autoTrinkets }) 
+        if itemID then local _, useSpellID = C_Item.GetItemSpell(itemID); if useSpellID and useSpellID > 0 then AddEM("item", itemID, false, true, db.autoTrinkets) end end
+    end
+    
+    if db.customSpells then for id, en in pairs(db.customSpells) do if IsSpellAvailable(id) then AddEM("spell", id, false, false, en) end end end
+    if db.customItems then for id, en in pairs(db.customItems) do AddEM("item", id, false, false, en) end end
+    return trackers
+end
+
+function ExtraMonitor:ScanTracked()
+    wipe(self.ActiveTrackers)
+    local parentEnabled = WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable ~= false
+    if not parentEnabled or (WF.db and WF.db.extraMonitor and WF.db.extraMonitor.enable == false) then return end
+
+    local db = GetDB()
+    if not db.enable then return end
+
+    local seenSpells = {}
+    local seenItems = {}
+    local seenRacialNames = {} 
+
+    local racials = ns.RACE_RACIALS or EMPTY_TABLE
+    if db.autoRacial then
+        local _, race = UnitRace("player")
+        if race and racials[race] then 
+            for _, spellID in ipairs(racials[race]) do 
+                if IsSpellAvailable(spellID) and not seenSpells[spellID] then 
+                    local sInfo = C_Spell.GetSpellInfo(spellID)
+                    local sName = sInfo and sInfo.name or tostring(spellID)
+                    if not seenRacialNames[sName] then
+                        seenRacialNames[sName] = true
+                        seenSpells[spellID] = true
+                        local buffDur = GetItemDuration(nil, spellID, "spell")
+                        table.insert(self.ActiveTrackers, { type = "spell", id = spellID, isRacial = true, useSpellID = spellID, buffDuration = buffDur }) 
+                    end
+                end 
             end 
         end
     end
     
     if db.customSpells then 
-        for id, en in pairs(db.customSpells) do 
-            if not seenSpells[id] then
-                seenSpells[id] = true
-                table.insert(uiTrackers, { type="spell", id=id, enabled=en }) 
-            end
+        for spellID, enabled in pairs(db.customSpells) do 
+            if enabled and IsSpellAvailable(spellID) and not seenSpells[spellID] then 
+                seenSpells[spellID] = true
+                local buffDur = GetItemDuration(nil, spellID, "spell")
+                table.insert(self.ActiveTrackers, { type = "spell", id = spellID, useSpellID = spellID, buffDuration = buffDur }) 
+            end 
         end 
     end
     
-    if db.customItems then 
-        for configID, en in pairs(db.customItems) do 
-            if not seenItems[configID] then
-                seenItems[configID] = true
-                table.insert(uiTrackers, { type="item", id=configID, enabled=en }) 
+    if db.autoTrinkets then
+        for slot = 13, 14 do
+            local itemID = GetInventoryItemID("player", slot)
+            if itemID then 
+                local _, useSpellID = C_Item.GetItemSpell(itemID)
+                if useSpellID and useSpellID > 0 and not seenItems[itemID] then 
+                    seenItems[itemID] = true
+                    local buffDur = GetItemDuration(itemID, useSpellID, "item")
+                    table.insert(self.ActiveTrackers, { type = "item", id = itemID, slot = slot, isTrinket = true, useSpellID = useSpellID, buffDuration = buffDur }) 
+                end 
             end
+        end
+    end
+    
+    if db.customItems then 
+        for configItemID, enabled in pairs(db.customItems) do 
+            if enabled then 
+                local actualID = GetResolvedItemID(configItemID)
+                local isAvail = IsItemAvailable(actualID)
+                if not isAvail and (configItemID == 5512 or configItemID == 224464) then 
+                    local _, class = UnitClass("player")
+                    if class == "WARLOCK" then isAvail = true end 
+                end
+                if isAvail and not seenItems[actualID] then 
+                    seenItems[actualID] = true
+                    local _, useSpellID = C_Item.GetItemSpell(actualID)
+                    local buffDur = GetItemDuration(actualID, useSpellID, "item")
+                    table.insert(self.ActiveTrackers, { type = "item", id = actualID, configID = configItemID, useSpellID = useSpellID, buffDuration = buffDur }) 
+                end 
+            end 
         end 
     end
 
-    table.sort(uiTrackers, function(a, b)
-        local order = db.customOrder or {}
-        local idA = a.type .. "_" .. a.id
-        local idB = b.type .. "_" .. b.id
-        local valA = order[idA] or 999
-        local valB = order[idB] or 999
+    table.sort(self.ActiveTrackers, function(a, b)
+        local order = db.customOrder or EMPTY_TABLE
+        local baseIdA = a.configID or a.id; local baseIdB = b.configID or b.id
+        local idA = a.type .. "_" .. baseIdA; local idB = b.type .. "_" .. baseIdB
+        local valA = order[idA] or 999; local valB = order[idB] or 999
         if valA == valB then return idA < idB end
         return valA < valB
     end)
+end
 
-    local col, row = 0, 0
-    for i, data in ipairs(uiTrackers) do
-        local btn = previewBox.pool[i]
-        if not btn then
-            btn = CreateFrame("Button", nil, previewBox, "BackdropTemplate")
-            btn:RegisterForClicks("LeftButtonUp", "RightButtonUp"); btn:RegisterForDrag("LeftButton"); btn:SetMovable(true)
-            btn:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1})
-            btn.icon = btn:CreateTexture(nil, "BACKGROUND"); btn.icon:SetAllPoints()
-            btn.mask = btn:CreateTexture(nil, "OVERLAY"); btn.mask:SetAllPoints(); btn.mask:SetColorTexture(0, 0, 0, 0.7)
-            btn.maskIcon = btn:CreateTexture(nil, "OVERLAY"); btn.maskIcon:SetSize(16, 16); btn.maskIcon:SetPoint("CENTER")
-            btn.maskIcon:SetTexture("Interface\\AddOns\\WishFlex\\Media\\Icons\\off.tga"); btn.maskIcon:SetVertexColor(1, 0, 0, 0.8)
-            previewBox.pool[i] = btn
-        end
-
-        btn.trackerData = data
-        local iconTex = (data.type == "item") and C_Item.GetItemIconByID(data.id) or C_Spell.GetSpellTexture(data.id)
-        btn.icon:SetTexture(iconTex)
-        btn:SetSize(w, h)
-        btn:ClearAllPoints()
-        btn:SetPoint("TOPLEFT", px + col*(w+gap), py - row*(h+gap))
-        
-        ApplyTexCoord(btn.icon, w, h)
-        
-        if data.enabled then btn.icon:SetDesaturated(false); btn.mask:Hide(); btn.maskIcon:Hide(); btn:SetBackdropBorderColor(0, 0, 0, 1) else btn.icon:SetDesaturated(true); btn.mask:Show(); btn.maskIcon:Show(); btn:SetBackdropBorderColor(1, 0, 0, 1) end
-        
-        btn:SetScript("OnEnter", function(self)
-            self:SetBackdropBorderColor(1, 0.8, 0, 1)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            local nameStr = (data.type == "item") and (C_Item.GetItemNameByID(data.id) or "物品ID: " .. data.id) or ((C_Spell.GetSpellInfo(data.id) and C_Spell.GetSpellInfo(data.id).name) or "法术ID: " .. data.id)
-            GameTooltip:AddLine(nameStr, 1, 1, 1)
-            if not data.enabled then GameTooltip:AddLine("|cffff0000(当前已停用)|r", 1, 1, 1) end
-            GameTooltip:Show()
-        end)
-        
-        btn:SetScript("OnLeave", function(self) if data.enabled then self:SetBackdropBorderColor(0, 0, 0, 1) else self:SetBackdropBorderColor(1, 0, 0, 1) end; GameTooltip:Hide() end)
-
-        btn:SetScript("OnDragStart", function(self)
-            self.isDragging = true
-            local currentLevel = self:GetFrameLevel() or 1
-            self.origFrameLevel = currentLevel
-            self:SetFrameLevel(math.min(65535, currentLevel + 50))
-            local cx, cy = GetCursorPosition()
-            local uiScale = self:GetEffectiveScale()
-            self.cursorStartX = cx / uiScale
-            self.cursorStartY = cy / uiScale
-            local p, rt, rp, x, y = self:GetPoint()
-            self.origP, self.origRT, self.origRP = p, rt, rp
-            self.startX, self.startY = x, y
-
-            self:SetScript("OnUpdate", function(s)
-                local ncx, ncy = GetCursorPosition()
-                ncx = ncx / uiScale; ncy = ncy / uiScale
-                s:ClearAllPoints()
-                s:SetPoint(s.origP, s.origRT, s.origRP, s.startX + (ncx - s.cursorStartX), s.startY + (ncy - s.cursorStartY))
-
-                local scx, scy = s:GetCenter()
-                if not scx then return end
-
-                local closestBtn = nil
-                local minDist = 9999
-                for j, other in ipairs(previewBox.pool) do
-                    if other:IsShown() and other ~= s then
-                        local ox, oy = other:GetCenter()
-                        if ox and oy then
-                            local dist = math.sqrt((scx - ox)^2 + (scy - oy)^2)
-                            if dist < minDist then minDist = dist; closestBtn = other end
-                        end
-                    end
-                end
-
-                if closestBtn and minDist < 60 then
-                    local ox, oy = closestBtn:GetCenter()
-                    s.dropTarget = closestBtn
-                    s.dropModeDir = (scx < ox) and "before" or "after"
-                    
-                    ind:SetParent(closestBtn:GetParent())
-                    ind:SetFrameLevel(closestBtn:GetFrameLevel() + 5)
-                    ind:SetSize(4, closestBtn:GetHeight() + 10)
-                    ind:ClearAllPoints()
-                    
-                    if s.dropModeDir == "before" then
-                        ind:SetPoint("RIGHT", closestBtn, "LEFT", -2, 0)
-                    else
-                        ind:SetPoint("LEFT", closestBtn, "RIGHT", 2, 0)
-                    end
-                    ind:Show()
-                else
-                    ind:Hide()
-                    s.dropTarget = nil
-                end
-            end)
-        end)
-
-        btn:SetScript("OnDragStop", function(self)
-            self.isDragging = false
-            self:SetScript("OnUpdate", nil)
-            self:SetFrameLevel(math.max(1, math.min(65535, self.origFrameLevel or 1)))
-            ind:Hide()
-
-            if self.dropTarget then
-                local sortedList = {}
-                for _, v in ipairs(uiTrackers) do table.insert(sortedList, v) end
-
-                local dragIdx
-                for idx, v in ipairs(sortedList) do
-                    if v.type == data.type and v.id == data.id then dragIdx = idx; break end
-                end
-
-                if dragIdx then
-                    local draggedItem = table.remove(sortedList, dragIdx)
-                    
-                    local targetIdx
-                    for idx, v in ipairs(sortedList) do
-                        if v.type == self.dropTarget.trackerData.type and v.id == self.dropTarget.trackerData.id then targetIdx = idx; break end
-                    end
-
-                    if targetIdx then
-                        if self.dropModeDir == "after" then
-                            table.insert(sortedList, targetIdx + 1, draggedItem)
-                        else
-                            table.insert(sortedList, targetIdx, draggedItem)
-                        end
-
-                        if not db.customOrder then db.customOrder = {} end
-                        for idx, v in ipairs(sortedList) do
-                            local key = v.type .. "_" .. v.id
-                            db.customOrder[key] = idx * 10
-                        end
-                    end
-                end
-            end
-            Refresh()
-        end)
-        
-        btn:SetScript("OnClick", function(self, button)
-            if self.isDragging then return end
-            if button == "RightButton" then
-                local titleStr = (data.type == "item") and (C_Item.GetItemNameByID(data.id) or "自定义物品") or ((C_Spell.GetSpellInfo(data.id) and C_Spell.GetSpellInfo(data.id).name) or "自定义法术")
-                ShowSandboxMenu(btn, data, titleStr)
-            elseif button == "LeftButton" then
-                EM.Sandbox.popupMode = "GLOBAL"
-                WF.UI:RefreshCurrentPanel()
-            end
-        end)
-        
-        btn:Show()
-        col = col + 1
-        if col >= maxRow then col = 0; row = row + 1 end
+local function AcquireIconFrame(dbKey)
+    if not FramePool[dbKey] then
+        local fName = "WF_ExtraMonitor_Icon_" .. string.gsub(dbKey, "[^%w]", "_")
+        local f = CreateFrame("Button", fName, ExtraMonitor, "BackdropTemplate")
+        f:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1})
+        f:SetBackdropBorderColor(0, 0, 0, 1)
+        f.icon = f:CreateTexture(nil, "BACKGROUND"); f.icon:SetAllPoints()
+        f.cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+        f.cd:SetAllPoints(); f.cd:SetDrawEdge(false); 
+        f.cd:SetHideCountdownNumbers(false) 
+        f.textFrame = CreateFrame("Frame", nil, f); f.textFrame:SetAllPoints(); f.textFrame:SetFrameLevel(f.cd:GetFrameLevel() + 5)
+        f.count = f.textFrame:CreateFontString(nil, "OVERLAY")
+        f.dummyText = f.textFrame:CreateFontString(nil, "OVERLAY")
+        f.dummyText:SetShadowColor(0,0,0,1); f.dummyText:SetShadowOffset(1, -1)
+        f.dummyText:Hide()
+        f.mask = f.textFrame:CreateTexture(nil, "BACKGROUND")
+        f.mask:SetAllPoints()
+        f.mask:SetColorTexture(0, 0.5, 1, 0.3)
+        f.mask:Hide()
+        f.isExtraMonitor = true
+        f.cdActive = false
+        FramePool[dbKey] = f
     end
+    return FramePool[dbKey]
+end
 
-    local previewHeight = math.abs(py) + (row + 1) * (h + gap) + 20
-    previewBox:SetSize(ColW - 30, math.max(220, previewHeight))
-    currentY = currentY - previewBox:GetHeight() - 20
+function ExtraMonitor:UpdateDisplay()
+    local db = GetDB(); local dbO = (WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides) or EMPTY_TABLE
+    
+    local parentEnabled = WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable ~= false
+    if not db.enable or not parentEnabled then 
+        self:Hide()
+        for _, f in pairs(FramePool) do f:Hide(); f.cdActive = false; if f.cd then pcall(f.cd.Clear, f.cd) end end
+        return 
+    end
+    
+    self:Show()
 
-    if EM.Sandbox.popupMode == "GLOBAL" then
-        if not WF.UI.EMPopup then
-            local popup = CreateFrame("Frame", "WishFlex_EMPopup", WF.MainFrame, "BackdropTemplate")
-            popup:SetSize(340, 480); popup:SetPoint("CENTER", WF.MainFrame, "CENTER", 100, 0)
-            popup:SetFrameStrata("DIALOG"); popup:SetFrameLevel(WF.MainFrame:GetFrameLevel() + 50)
-            popup:EnableMouse(true); popup:SetMovable(true); popup:RegisterForDrag("LeftButton")
-            popup:SetScript("OnDragStart", popup.StartMoving); popup:SetScript("OnDragStop", popup.StopMovingOrSizing)
-            WF.UI.Factory.ApplyFlatSkin(popup, 0.08, 0.08, 0.08, 0.98, C_R, C_G, C_B, 1)
+    local w = tonumber(db.iconWidth) or 36; local h = tonumber(db.iconHeight) or 36
 
-            popup.titleBg = CreateFrame("Frame", nil, popup, "BackdropTemplate")
-            popup.titleBg:SetPoint("TOPLEFT", 1, -1); popup.titleBg:SetPoint("TOPRIGHT", -1, -1); popup.titleBg:SetHeight(30)
-            WF.UI.Factory.ApplyFlatSkin(popup.titleBg, 0.15, 0.15, 0.15, 1, 0,0,0,0)
-            popup.titleText = popup.titleBg:CreateFontString(nil, "OVERLAY")
-            popup.titleText:SetFont(STANDARD_TEXT_FONT, 13, "OUTLINE"); popup.titleText:SetPoint("LEFT", 10, 0); popup.titleText:SetTextColor(0.7, 0.7, 0.7)
-            popup.titleText:SetText("排版设置")
+    local isConfigOpen = false
+    if WF.UI and WF.UI.MainFrame and WF.UI.MainFrame:IsShown() and WF.UI.CurrentNodeKey == "cooldownCustom_Global" then isConfigOpen = true end
+    if EditModeManagerFrame and EditModeManagerFrame:IsShown() then isConfigOpen = true end
 
-            popup.closeBtn = CreateFrame("Button", nil, popup.titleBg); popup.closeBtn:SetSize(20, 20); popup.closeBtn:SetPoint("RIGHT", -5, 0)
-            local cTex = popup.closeBtn:CreateTexture(nil, "ARTWORK"); cTex:SetAllPoints(); cTex:SetTexture("Interface\\AddOns\\WishFlex\\Media\\Icons\\off.tga"); cTex:SetVertexColor(0.6, 0.6, 0.6)
-            popup.closeBtn:SetScript("OnEnter", function() cTex:SetVertexColor(1, 0.2, 0.2) end); popup.closeBtn:SetScript("OnLeave", function() cTex:SetVertexColor(0.6, 0.6, 0.6) end)
-            popup.closeBtn:SetScript("OnClick", function() EM.Sandbox.popupMode = nil; popup:Hide(); WF.UI:RefreshCurrentPanel() end)
+    for _, f in pairs(FramePool) do f._emActiveThisFrame = false end
 
-            local sFrame = CreateFrame("ScrollFrame", nil, popup, "UIPanelScrollFrameTemplate")
-            sFrame:SetPoint("TOPLEFT", 10, -40); sFrame:SetPoint("BOTTOMRIGHT", -30, 10)
-            local sChild = CreateFrame("Frame"); sChild:SetSize(sFrame:GetWidth(), 1); sFrame:SetScrollChild(sChild)
-            popup.scrollFrame = sFrame; popup.scrollChild = sChild
-            WF.UI.EMPopup = popup
+    if isConfigOpen then
+        if not ExtraMonitor.ItemBuffPool["dummy_test"] then
+            local df = CreateFrame("Button", "WF_ItemBuffIcon_dummy_test", UIParent, "BackdropTemplate")
+            df:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1})
+            df:SetBackdropBorderColor(0, 0, 0, 1)
+            df.icon = df:CreateTexture(nil, "BACKGROUND")
+            df.icon:SetAllPoints()
+            df.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            df.cd = CreateFrame("Cooldown", nil, df, "CooldownFrameTemplate")
+            df.cd:SetAllPoints()
+            df.cd:SetDrawEdge(false)
+            df.cd:SetReverse(true)
+            df.cd:SetHideCountdownNumbers(false)
+            df.isExtraMonitor = true 
+            df.id = "dummy_test"
+            df.icon:SetTexture(134400)
+            df.isBuffActive = true
+            ExtraMonitor.ItemBuffPool["dummy_test"] = df
+            ExtraMonitor:ShowItemBuff({id = "dummy_test", type = "spell", buffDuration = 15})
+        else
+            local f = ExtraMonitor.ItemBuffPool["dummy_test"]
+            f.isBuffActive = true
+            f:Show()
+            UpdateItemBuffFontAndSettings(f)
+            if WF.CooldownCustomAPI then WF.CooldownCustomAPI:MarkLayoutDirty(false) end
         end
-
-        local popup = WF.UI.EMPopup
-        popup:Show()
-        local popY = -10
-        local popW = popup.scrollFrame:GetWidth() - 10
-
-        local function LiveUpdateSize()
-            EM:UpdateDisplay() -- 更新真实UI
-            if previewBox and previewBox.pool then
-                local sw = tonumber(db.iconWidth) or 36
-                local sh = tonumber(db.iconHeight) or 36
-                local sgap = tonumber(db.iconGap) or 1
-                local maxC = math.floor((ColW - 60) / (sw + sgap))
-                if maxC < 1 then maxC = 1 end
-                local c, r = 0, 0
-                for _, btn in ipairs(previewBox.pool) do
-                    if btn:IsShown() then
-                        btn:SetSize(sw, sh)
-                        btn:ClearAllPoints()
-                        btn:SetPoint("TOPLEFT", 15 + c*(sw+sgap), -40 - r*(sh+sgap))
-                        ApplyTexCoord(btn.icon, sw, sh)
-                        c = c + 1
-                        if c >= maxC then c = 0; r = r + 1 end
-                    end
-                end
-                previewBox:SetHeight(math.abs(-40) + (r + 1) * (sh + sgap) + 20)
-            end
-        end
-
-        local baseOpts = {
-            { type = "group", key = "em_base", text = "基础排版", childs = {
-                { type = "toggle", key = "enable", db = db, text = "全局启用额外监控", callback = Refresh },
-                { type = "slider", key = "iconWidth", db = db, text = "图标宽度", min = 20, max = 100, step = 1, callback = LiveUpdateSize },
-                { type = "slider", key = "iconHeight", db = db, text = "图标高度", min = 20, max = 100, step = 1, callback = LiveUpdateSize },
-                { type = "slider", key = "iconGap", db = db, text = "图标间距", min = 0, max = 20, step = 1, callback = LiveUpdateSize },
-                { type = "slider", key = "maxPerRow", db = db, text = "每行最大图标数", min = 1, max = 20, step = 1, callback = LiveUpdateSize },
-                { type = "dropdown", key = "zeroCountBehavior", db = db, text = "层数为0/未装备时", options = { {text="完全隐藏", value="hide"}, {text="变灰显示0层", value="gray"} }, callback = function() EM:UpdateDisplay() end },
-            }},
-        }
-        
-        popY = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, popY, popW, baseOpts, Refresh)
-        popY = popY - 10
-
-        popup.scrollChild:SetHeight(math.abs(popY) + 20)
     else
-        if WF.UI.EMPopup then WF.UI.EMPopup:Hide() end
+        if ExtraMonitor.ItemBuffPool["dummy_test"] then
+            ExtraMonitor.ItemBuffPool["dummy_test"].isBuffActive = false
+            ExtraMonitor.ItemBuffPool["dummy_test"]:Hide()
+        end
     end
 
-    return currentY, 800
-end)
+    local function updateTextSafely(fontStr, text)
+        if fontStr._lastText ~= text then
+            fontStr:SetText(text)
+            fontStr._lastText = text
+        end
+    end
+
+    for i, data in ipairs(self.ActiveTrackers) do
+        local configID = data.configID or data.id
+        local dbKey = data.type .. "_" .. tostring(configID)
+        local f = AcquireIconFrame(dbKey)
+        f._emActiveThisFrame = true; f.spellID = data.id; f.dbKey = dbKey
+        
+        local oCat = dbO[f.dbKey] and dbO[f.dbKey].category or (dbO[tostring(configID)] and dbO[tostring(configID)].category)
+        local isCrossGrouped = (oCat == "Essential" or oCat == "Utility" or oCat == "Defensive" or oCat == "BuffIcon" or oCat == "BuffBar" or (oCat and string.sub(oCat, 1, 9) == "CustomRow") or (oCat and string.sub(oCat, 1, 13) == "CustomBuffRow"))
+
+        if isCrossGrouped then
+            f.isCrossGrouped = true; f.category = oCat
+            f.sortIndex = dbO[f.dbKey] and dbO[f.dbKey].sortIndex or (dbO[tostring(configID)] and dbO[tostring(configID)].sortIndex) or 999
+        else 
+            f.isCrossGrouped = false; f.category = "ExtraMonitor" 
+        end
+        
+        local count, st, dur = 0, 0, 0; local chargeInfo = nil; local durObj = nil; local isOnGCD = false; local spellCdActive = false
+        
+        if data.type == "item" then
+            if data.isTrinket then count = 1 else count = GetItemCount(data.id, false, true) or 0 end
+            if C_Container and C_Container.GetItemCooldown then st, dur = C_Container.GetItemCooldown(data.id) elseif GetItemCooldown then st, dur = GetItemCooldown(data.id) end
+            local newTex = C_Item.GetItemIconByID(data.id)
+            if f._lastIconTex ~= newTex then f.icon:SetTexture(newTex); f._lastIconTex = newTex end
+        elseif data.type == "spell" then
+            if C_Spell and C_Spell.GetSpellCharges then 
+                local ok, res = pcall(C_Spell.GetSpellCharges, data.id)
+                if ok then chargeInfo = res end
+            end
+            count = chargeInfo and chargeInfo.currentCharges or 1
+            
+            if C_Spell and C_Spell.GetSpellCooldown then
+                local ok, cdInfo = pcall(C_Spell.GetSpellCooldown, data.id)
+                if ok and cdInfo then 
+                    st, dur = cdInfo.startTime, cdInfo.duration
+                    isOnGCD = (cdInfo.isOnGCD == true)
+                    if cdInfo.isActive ~= nil then spellCdActive = (cdInfo.isActive == true) else spellCdActive = true end 
+                end
+            end
+            if not isOnGCD and C_Spell and C_Spell.GetSpellCooldownDuration then 
+                local ok, res = pcall(C_Spell.GetSpellCooldownDuration, data.id)
+                if ok then durObj = res end
+            end
+            local newTex = C_Spell.GetSpellTexture(data.id)
+            if f._lastIconTex ~= newTex then f.icon:SetTexture(newTex); f._lastIconTex = newTex end
+        end
+
+        local tCat = f.isCrossGrouped and f.category or "ExtraMonitor"
+        local cdDB = WF.db.cooldownCustom or EMPTY_TABLE
+        local tCatCfg = cdDB[tCat] or db
+        
+        local realW = f.isCrossGrouped and (tonumber(tCatCfg.width) or 45) or w
+        local realH = f.isCrossGrouped and (tonumber(tCatCfg.height) or 45) or h
+        
+        if not parentEnabled then
+            if f._lastWForTex ~= realW or f._lastHForTex ~= realH then
+                ApplyTexCoord(f.icon, realW, realH)
+                f._lastWForTex = realW; f._lastHForTex = realH
+            end
+        end
+        
+        local stackPos = tCatCfg.stackPosition or db.stackPosition or "BOTTOMRIGHT"; local stackX = tonumber(tCatCfg.stackXOffset or db.stackXOffset) or 0; local stackY = tonumber(tCatCfg.stackYOffset or db.stackYOffset) or 0; local stackSize = tonumber(tCatCfg.stackFontSize or db.stackFontSize) or 14; local stackColor = tCatCfg.stackFontColor or db.stackFontColor or DEFAULT_STACK_COLOR
+        local cdPos = tCatCfg.cdPosition or db.cdPosition or "CENTER"; local cdX = tonumber(tCatCfg.cdXOffset or db.cdXOffset) or 0; local cdY = tonumber(tCatCfg.cdYOffset or db.cdYOffset) or 0; local cdSize = tonumber(tCatCfg.cdFontSize or db.cdFontSize) or 18; local cdColor = tCatCfg.cdFontColor or db.cdFontColor or DEFAULT_CD_COLOR
+        local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+        local fontPath = (LSM and cdDB.countFont and LSM:Fetch('font', cdDB.countFont)) or STANDARD_TEXT_FONT; local outline = cdDB.countFontOutline or "OUTLINE"
+
+        if f.count._lastFont ~= fontPath or f.count._lastSize ~= stackSize or f.count._lastOutline ~= outline then
+            pcall(f.count.SetFont, f.count, fontPath, stackSize, outline)
+            f.count._lastFont = fontPath; f.count._lastSize = stackSize; f.count._lastOutline = outline
+        end
+        if f.count._lastColorR ~= stackColor.r or f.count._lastColorG ~= stackColor.g or f.count._lastColorB ~= stackColor.b or f.count._lastColorA ~= stackColor.a then
+            f.count:SetTextColor(stackColor.r, stackColor.g, stackColor.b, stackColor.a or 1)
+            f.count._lastColorR = stackColor.r; f.count._lastColorG = stackColor.g; f.count._lastColorB = stackColor.b; f.count._lastColorA = stackColor.a
+        end
+        if stackX == 0 and stackY == 0 and stackPos == "BOTTOMRIGHT" then stackX = -2; stackY = 2 end
+        if f.count._lastPos ~= stackPos or f.count._lastX ~= stackX or f.count._lastY ~= stackY then
+            f.count:ClearAllPoints()
+            f.count:SetPoint(stackPos, f.textFrame, stackPos, stackX, stackY)
+            f.count._lastPos = stackPos; f.count._lastX = stackX; f.count._lastY = stackY
+        end
+
+        if f.dummyText._lastFont ~= fontPath or f.dummyText._lastSize ~= cdSize or f.dummyText._lastOutline ~= outline then
+            pcall(f.dummyText.SetFont, f.dummyText, fontPath, cdSize, outline)
+            f.dummyText._lastFont = fontPath; f.dummyText._lastSize = cdSize; f.dummyText._lastOutline = outline
+        end
+        if f.dummyText._lastColorR ~= cdColor.r or f.dummyText._lastColorG ~= cdColor.g or f.dummyText._lastColorB ~= cdColor.b or f.dummyText._lastColorA ~= cdColor.a then
+            f.dummyText:SetTextColor(cdColor.r, cdColor.g, cdColor.b, cdColor.a or 1)
+            f.dummyText._lastColorR = cdColor.r; f.dummyText._lastColorG = cdColor.g; f.dummyText._lastColorB = cdColor.b; f.dummyText._lastColorA = cdColor.a
+        end
+        if f.dummyText._lastPos ~= cdPos or f.dummyText._lastX ~= cdX or f.dummyText._lastY ~= cdY then
+            f.dummyText:ClearAllPoints()
+            f.dummyText:SetPoint(cdPos, f.textFrame, cdPos, cdX, cdY)
+            f.dummyText._lastPos = cdPos; f.dummyText._lastX = cdX; f.dummyText._lastY = cdY
+        end
+
+        local cdText = f.cdTextObj
+        if not cdText then
+            if f.cd.GetCountdownFontString then cdText = f.cd:GetCountdownFontString() end
+            if not cdText then cdText = FindCDText(f, f.cd:GetRegions()) end
+            if cdText then f.cdTextObj = cdText end
+        end
+
+        if cdText then 
+            if cdText._lastFont ~= fontPath or cdText._lastSize ~= cdSize or cdText._lastOutline ~= outline then
+                pcall(cdText.SetFont, cdText, fontPath, cdSize, outline)
+                cdText._lastFont = fontPath; cdText._lastSize = cdSize; cdText._lastOutline = outline
+            end
+            if cdText._lastColorR ~= cdColor.r or cdText._lastColorG ~= cdColor.g or cdText._lastColorB ~= cdColor.b or cdText._lastColorA ~= cdColor.a then
+                cdText:SetTextColor(cdColor.r, cdColor.g, cdColor.b, cdColor.a or 1)
+                cdText._lastColorR = cdColor.r; cdText._lastColorG = cdColor.g; cdText._lastColorB = cdColor.b; cdText._lastColorA = cdColor.a
+            end
+            if cdText._lastPos ~= cdPos or cdText._lastX ~= cdX or cdText._lastY ~= cdY then
+                cdText:ClearAllPoints()
+                cdText:SetPoint(cdPos, f.cd, cdPos, cdX, cdY) 
+                cdText._lastPos = cdPos; cdText._lastX = cdX; cdText._lastY = cdY
+            end
+        end
+
+        local shouldShow = false
+        
+        if isConfigOpen and not f.isCrossGrouped then
+            shouldShow = true
+            updateTextSafely(f.count, data.type == "item" and "5" or "")
+            updateTextSafely(f.dummyText, data.type == "spell" and "12" or "")
+            if not f.dummyText:IsShown() then f.dummyText:Show() end
+            if f.cdActive then f.cd:Clear(); f.cdActive = false; f._lastSt = nil; f._lastDurObj = nil end
+            
+            if f._lastDesat ~= false then f.icon:SetDesaturated(false); f.icon:SetVertexColor(1, 1, 1); f._lastDesat = false end
+            if not f.mask:IsShown() then f.mask:Show() end
+        else
+            if f.dummyText:IsShown() then f.dummyText:Hide() end
+            if count > 0 or data.type == "spell" then
+                shouldShow = true
+                if count > 1 then updateTextSafely(f.count, tostring(count)) else updateTextSafely(f.count, "") end
+                
+                -- 【修复2】：精确判断真实剩余冷却时间，杜绝魔兽世界历史CD接口导致的假褪色
+                local isFaded = false 
+                if data.type == "spell" then
+                    if not isOnGCD and durObj and spellCdActive then
+                        local remain = (durObj.startTime or 0) + (durObj.duration or 0) - GetTime()
+                        if remain > 0 then
+                            if not f._lastDurObj or f._lastDurObj.startTime ~= durObj.startTime or f._lastDurObj.duration ~= durObj.duration then
+                                pcall(f.cd.SetCooldownFromDurationObject, f.cd, durObj)
+                                f._lastDurObj = { startTime = durObj.startTime, duration = durObj.duration }
+                                f._lastSt = nil
+                            end
+                            f.cdActive = true
+                            isFaded = true
+                        else
+                            if f.cdActive then f.cd:Clear(); f.cdActive = false; f._lastDurObj = nil; f._lastSt = nil end
+                            isFaded = false
+                        end
+                    else 
+                        if f.cdActive then f.cd:Clear(); f.cdActive = false; f._lastDurObj = nil; f._lastSt = nil end 
+                        isFaded = false
+                    end
+                    if chargeInfo and chargeInfo.maxCharges and chargeInfo.maxCharges > 1 then 
+                        isFaded = (chargeInfo.currentCharges == 0) 
+                    end
+                else
+                    local validItemCD = false
+                    if type(dur) == "number" and dur > 1.5 then 
+                        if st and (st + dur) > GetTime() then
+                            validItemCD = true 
+                        end
+                    elseif type(issecretvalue) == "function" and issecretvalue(dur) then 
+                        validItemCD = true 
+                    end
+                    
+                    if validItemCD then
+                        if f._lastSt ~= st or f._lastDur ~= dur then
+                            pcall(f.cd.SetCooldown, f.cd, st, dur)
+                            f._lastSt = st
+                            f._lastDur = dur
+                            f._lastDurObj = nil
+                        end
+                        f.cdActive = true; isFaded = true 
+                    else 
+                        if f.cdActive then f.cd:Clear(); f.cdActive = false; f._lastSt = nil; f._lastDurObj = nil end; isFaded = false 
+                    end
+                end
+
+                if isFaded then 
+                    if f._lastDesat ~= true then f.icon:SetDesaturated(true); f.icon:SetVertexColor(0.5, 0.5, 0.5); f._lastDesat = true end
+                    if f.mask:IsShown() then f.mask:Hide() end
+                else 
+                    if f._lastDesat ~= false then f.icon:SetDesaturated(false); f.icon:SetVertexColor(1, 1, 1); f._lastDesat = false end
+                    if f.mask:IsShown() then f.mask:Hide() end
+                end
+            else
+                if db.zeroCountBehavior == "gray" then 
+                    shouldShow = true
+                    if f._lastDesat ~= true then f.icon:SetDesaturated(true); f.icon:SetVertexColor(0.5, 0.5, 0.5); f._lastDesat = true end
+                    if f.mask:IsShown() then f.mask:Hide() end
+                    updateTextSafely(f.count, "0")
+                    if f.cdActive then f.cd:Clear(); f.cdActive = false; f._lastSt = nil; f._lastDurObj = nil end
+                else 
+                    shouldShow = false 
+                end
+            end
+        end
+
+        if shouldShow then
+            if not f:IsShown() then f:Show() end
+        else
+            if f:IsShown() then f:Hide() end
+        end
+    end
+
+    for _, f in pairs(FramePool) do if not f._emActiveThisFrame and f:IsShown() then f:Hide() end end
+end
+
+local updatePending = false
+function ExtraMonitor:TriggerUpdate()
+    if not updatePending then
+        updatePending = true
+        C_Timer.After(0.05, function()
+            updatePending = false
+            if ExtraMonitor:IsShown() or (WF.db and WF.db.extraMonitor and WF.db.extraMonitor.enable) then
+                ExtraMonitor:UpdateDisplay()
+            end
+        end)
+    end
+end
+WF.ExtraMonitorAPI.TriggerUpdate = ExtraMonitor.TriggerUpdate
+
+local function InitExtraMonitor()
+    local parentEnabled = WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable ~= false
+    if (WF.db and WF.db.extraMonitor and WF.db.extraMonitor.enable == false) or not parentEnabled then 
+        ExtraMonitor:Hide()
+        return 
+    end
+
+    local db = GetDB()
+    ExtraMonitor:SetFrameStrata("MEDIUM")
+    ExtraMonitor:ScanTracked()
+    ExtraMonitor:UpdateDisplay()
+    
+    if WF.RegisterEvent then
+        WF:RegisterEvent("PLAYER_ENTERING_WORLD", function() ExtraMonitor:ScanTracked(); ExtraMonitor:TriggerUpdate() end)
+        WF:RegisterEvent("BAG_UPDATE_DELAYED", function() ExtraMonitor:ScanTracked(); ExtraMonitor:TriggerUpdate() end)
+        WF:RegisterEvent("PLAYER_EQUIPMENT_CHANGED", function() ExtraMonitor:ScanTracked(); ExtraMonitor:TriggerUpdate() end)
+        WF:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function() ExtraMonitor:ScanTracked(); ExtraMonitor:TriggerUpdate() end)
+        
+        WF:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(event, unit, castGUID, spellID)
+            if unit ~= "player" and unit ~= "pet" then return end
+            if type(spellID) ~= "number" then return end
+            
+            for _, data in ipairs(ExtraMonitor.ActiveTrackers) do
+                if (data.useSpellID == spellID) or (data.id == spellID) then
+                    local bDur = SafeGetBuffDuration(data)
+                    if bDur then 
+                        ExtraMonitor:ShowItemBuff(data) 
+                    end
+                end
+            end
+        end)
+        
+        WF:RegisterEvent("SPELL_UPDATE_COOLDOWN", function() ExtraMonitor:TriggerUpdate() end)
+        WF:RegisterEvent("SPELL_UPDATE_CHARGES", function() ExtraMonitor:TriggerUpdate() end)
+        WF:RegisterEvent("BAG_UPDATE_COOLDOWN", function() ExtraMonitor:TriggerUpdate() end)
+        WF:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN", function() ExtraMonitor:TriggerUpdate() end)
+        
+        WF:RegisterEvent("ADDON_LOADED", function(_, addon)
+            if addon == "WishFlex_Options" then
+                C_Timer.After(0.5, function()
+                    if WF.UI and WF.UI.MainFrame then
+                        WF.UI.MainFrame:HookScript("OnShow", function() ExtraMonitor:TriggerUpdate() end)
+                        WF.UI.MainFrame:HookScript("OnHide", function() ExtraMonitor:TriggerUpdate() end)
+                    end
+                end)
+            end
+        end)
+    end
+
+    C_Timer.After(1, function()
+        if EditModeManagerFrame then
+            EditModeManagerFrame:HookScript("OnShow", function() ExtraMonitor:TriggerUpdate() end)
+            EditModeManagerFrame:HookScript("OnHide", function() ExtraMonitor:TriggerUpdate() end)
+        end
+    end)
+end
+
+WF:RegisterModule("extraMonitor", L["Extra CD Monitor"] or "额外监控", InitExtraMonitor)

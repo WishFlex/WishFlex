@@ -12,22 +12,185 @@ local SafeEquals = function(v, expected)
     return ok and res 
 end
 
-function CDMod.ApplyElvUISkin(targetObj, parentFrame)
+local spellToKeyCache = nil
+local itemToKeyCache = nil
+
+local kbEventFrame = CreateFrame("Frame")
+kbEventFrame:RegisterEvent("UPDATE_BINDINGS")
+kbEventFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+kbEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+kbEventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+kbEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+kbEventFrame:SetScript("OnEvent", function()
+    spellToKeyCache = nil
+    itemToKeyCache = nil
+end)
+
+local function FormatKeyForDisplay(key)
+    if not key or key == "" then return "" end
+    local bindingText = GetBindingText and GetBindingText(key, "KEY_", true)
+    local displayKey = (bindingText and bindingText ~= "") and bindingText or key
+    if displayKey:find("|", 1, true) then return displayKey end
+
+    local upperKey = key:upper()
+    upperKey = upperKey:gsub("PADLTRIGGER", "LT"):gsub("PADRTRIGGER", "RT")
+    upperKey = upperKey:gsub("PADLSHOULDER", "LB"):gsub("PADRSHOULDER", "RB")
+    upperKey = upperKey:gsub("PADLSTICK", "LS"):gsub("PADRSTICK", "RS")
+    upperKey = upperKey:gsub("PADDPADUP", "D↑"):gsub("PADDPADDOWN", "D↓")
+    upperKey = upperKey:gsub("PADDPADLEFT", "D←"):gsub("PADDPADRIGHT", "D→")
+    upperKey = upperKey:gsub("^PAD", "")
+    upperKey = upperKey:gsub("SHIFT%-", "S"):gsub("META%-", "M"):gsub("CTRL%-", "C")
+    upperKey = upperKey:gsub("ALT%-", "A"):gsub("STRG%-", "ST"):gsub("CONTROL%-", "C")
+    upperKey = upperKey:gsub("MOUSE%s?WHEEL%s?UP", "MU"):gsub("MOUSE%s?WHEEL%s?DOWN", "MD")
+    upperKey = upperKey:gsub("MIDDLE%s?MOUSE", "M3"):gsub("MOUSE%s?BUTTON%s?", "M"):gsub("BUTTON", "M")
+    upperKey = upperKey:gsub("NUMPAD%s?PLUS", "N+"):gsub("NUMPAD%s?MINUS", "N-")
+    upperKey = upperKey:gsub("NUMPAD%s?MULTIPLY", "N*"):gsub("NUMPAD%s?DIVIDE", "N/")
+    upperKey = upperKey:gsub("NUMPAD%s?DECIMAL", "N."):gsub("NUMPAD%s?ENTER", "NEnt")
+    upperKey = upperKey:gsub("NUMPAD%s?", "N"):gsub("NUM%s?", "N"):gsub("NPAD%s?", "N")
+    upperKey = upperKey:gsub("PAGE%s?UP", "PU"):gsub("PAGE%s?DOWN", "PD")
+    upperKey = upperKey:gsub("INSERT", "Ins"):gsub("DELETE", "Del")
+    upperKey = upperKey:gsub("SPACEBAR", "Spc"):gsub("ENTER", "Ent")
+    upperKey = upperKey:gsub("ESCAPE", "Esc"):gsub("TAB", "Tab")
+    upperKey = upperKey:gsub("CAPSLOCK", "Caps"):gsub("CAPS%s?LOCK", "Caps")
+    upperKey = upperKey:gsub("HOME", "Hom"):gsub("END", "End")
+    return upperKey
+end
+
+local function BuildKeyMap()
+    spellToKeyCache = {}
+    itemToKeyCache = {}
+
+    local function AddAlias(spellID, itemID, keyBind)
+        if not keyBind or keyBind == "" or keyBind == "●" or keyBind == RANGE_INDICATOR then return end
+        local formatted = FormatKeyForDisplay(keyBind)
+        if spellID and spellID > 0 then
+            if not spellToKeyCache[spellID] then spellToKeyCache[spellID] = formatted end
+            if C_Spell and C_Spell.GetOverrideSpell then
+                local ov = C_Spell.GetOverrideSpell(spellID)
+                if ov and ov > 0 and not spellToKeyCache[ov] then spellToKeyCache[ov] = formatted end
+            end
+            if C_Spell and C_Spell.GetBaseSpell then
+                local base = C_Spell.GetBaseSpell(spellID)
+                if base and base > 0 and not spellToKeyCache[base] then spellToKeyCache[base] = formatted end
+            end
+        end
+        if itemID and itemID > 0 then
+            if not itemToKeyCache[itemID] then itemToKeyCache[itemID] = formatted end
+        end
+    end
+
+    local function CheckSlot(slot, keyBind)
+        if not slot or not keyBind then return end
+        local actionType, id, subType = GetActionInfo(slot)
+        if not id then return end
+        if actionType == "spell" or (actionType == "macro" and subType == "spell") then
+            AddAlias(id, nil, keyBind)
+        elseif actionType == "macro" then
+            local mSpellID = GetMacroSpell and GetMacroSpell(id)
+            if not mSpellID and GetActionText then
+                local mName = GetActionText(slot)
+                if mName then mSpellID = GetMacroSpell(mName) end
+            end
+            AddAlias(mSpellID, nil, keyBind)
+        elseif actionType == "item" then
+            AddAlias(nil, id, keyBind)
+            if C_Item and C_Item.GetItemSpell then
+                local _, iSpellID = C_Item.GetItemSpell(id)
+                if iSpellID then AddAlias(iSpellID, nil, keyBind) end
+            end
+        end
+    end
+
+    local function ScanButton(btn, bindCmd)
+        if not btn or not btn.action then return end
+        local kb = nil
+        if bindCmd then kb = GetBindingKey(bindCmd) end
+        if not kb and btn.config and btn.config.keyBoundTarget then kb = GetBindingKey(btn.config.keyBoundTarget) end
+        if not kb and btn.HotKey and btn.HotKey.GetText then
+            local text = btn.HotKey:GetText()
+            if text and text ~= "" and text ~= "●" and text ~= RANGE_INDICATOR then kb = text end
+        end
+        if kb then CheckSlot(btn.action, kb) end
+    end
+
+    local blizzBars = {
+        {"ActionButton", "ACTIONBUTTON"},
+        {"MultiBarBottomLeftButton", "MULTIACTIONBAR1BUTTON"},
+        {"MultiBarBottomRightButton", "MULTIACTIONBAR2BUTTON"},
+        {"MultiBarRightButton", "MULTIACTIONBAR3BUTTON"},
+        {"MultiBarLeftButton", "MULTIACTIONBAR4BUTTON"},
+        {"MultiBar5Button", "MULTIACTIONBAR5BUTTON"},
+        {"MultiBar6Button", "MULTIACTIONBAR6BUTTON"},
+        {"MultiBar7Button", "MULTIACTIONBAR7BUTTON"},
+        {"ExtraActionButton", "EXTRAACTIONBUTTON"}
+    }
+    for _, info in ipairs(blizzBars) do
+        for i=1, 12 do ScanButton(_G[info[1]..i], info[2]..i) end
+    end
+
+    if _G.ElvUI_Bar1Button1 then
+        for i=1, 15 do for j=1, 12 do ScanButton(_G["ElvUI_Bar"..i.."Button"..j]) end end
+    end
+    if _G.DominosActionButton1 then
+        for i=1, 120 do ScanButton(_G["DominosActionButton"..i]) end
+    end
+    if _G.BT4Button1 then
+        for i=1, 120 do ScanButton(_G["BT4Button"..i]) end
+    end
+end
+local function GetHotkey(spellID, itemID)
+    if not spellToKeyCache or not itemToKeyCache then BuildKeyMap() end
+    
+    itemID = tonumber(itemID)
+    if itemID and itemID > 0 and itemToKeyCache[itemID] then return itemToKeyCache[itemID] end
+    
+    spellID = tonumber(spellID)
+    if spellID and spellID > 0 then
+        if spellToKeyCache[spellID] then return spellToKeyCache[spellID] end
+        if CDMod.GetBaseSpellFast then
+            local baseFast = CDMod.GetBaseSpellFast(spellID)
+            if baseFast and spellToKeyCache[baseFast] then return spellToKeyCache[baseFast] end
+        end
+        if C_Spell and C_Spell.GetBaseSpell then
+            local base = C_Spell.GetBaseSpell(spellID)
+            if base and spellToKeyCache[base] then return spellToKeyCache[base] end
+        end
+        
+        local sInfo = C_Spell.GetSpellInfo(spellID)
+        local sName = sInfo and sInfo.name
+        if sName and sName ~= "" then
+            local lowerName = string.lower(sName)
+            for cachedID, key in pairs(spellToKeyCache) do
+                local cInfo = C_Spell.GetSpellInfo(cachedID)
+                if cInfo and cInfo.name and string.lower(cInfo.name) == lowerName then
+                    spellToKeyCache[spellID] = key -- 永久缓存，下一次极速响应
+                    return key
+                end
+            end
+        end
+    end
+    return ""
+end
+
+function CDMod.ApplyElvUISkin(targetObj, parentFrame, bdSize, bdColor)
     if not targetObj then return nil end
+    local m = CDMod.GetOnePixelSize() * (bdSize or 1)
+    local bc = bdColor or {r=0, g=0, b=0, a=1}
+
     if not targetObj.wishBd then
         local bd = CreateFrame("Frame", nil, parentFrame)
         local parentLvl = (parentFrame and parentFrame.GetFrameLevel and parentFrame:GetFrameLevel()) or 1
-        if targetObj.GetFrameLevel then bd:SetFrameLevel(math.max(0, targetObj:GetFrameLevel() - 1)) else bd:SetFrameLevel(math.max(0, parentLvl)) end
+        if targetObj.GetFrameLevel then bd:SetFrameLevel(math.max(0, targetObj:GetFrameLevel() + 5)) else bd:SetFrameLevel(math.max(0, parentLvl + 5)) end
         
         bd.ignoreBackdrop = true
         if bd.SetBackdrop then pcall(function() bd:SetBackdrop(nil) end) end
         bd.CreateBackdrop = function() end; bd.SetTemplate = function() end
         
-        local m = CDMod.GetOnePixelSize()
+        local defaultM = CDMod.GetOnePixelSize()
         local function DrawEdge(p1, p2, x, y, w, h)
             local t = bd:CreateTexture(nil, "BORDER", nil, 1); t:SetColorTexture(0, 0, 0, 1)
             t:SetPoint(p1, bd, p1, x, y); t:SetPoint(p2, bd, p2, x, y)
-            if w then t:SetWidth(m) end; if h then t:SetHeight(m) end
+            if w then t:SetWidth(defaultM) end; if h then t:SetHeight(defaultM) end
             if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false) end
             if t.SetTexelSnappingBias then t:SetTexelSnappingBias(0) end
             return t
@@ -37,7 +200,19 @@ function CDMod.ApplyElvUISkin(targetObj, parentFrame)
         if targetObj.IsObjectType and targetObj:IsObjectType("Texture") then targetObj:SetDrawLayer("ARTWORK", 1) end
         targetObj.wishBd = bd
     end
-    local m = CDMod.GetOnePixelSize()
+
+    if bdSize == 0 then
+        targetObj.wishBd.top:Hide(); targetObj.wishBd.bottom:Hide(); targetObj.wishBd.left:Hide(); targetObj.wishBd.right:Hide(); m = 0
+    else
+        targetObj.wishBd.top:SetColorTexture(bc.r, bc.g, bc.b, bc.a)
+        targetObj.wishBd.bottom:SetColorTexture(bc.r, bc.g, bc.b, bc.a)
+        targetObj.wishBd.left:SetColorTexture(bc.r, bc.g, bc.b, bc.a)
+        targetObj.wishBd.right:SetColorTexture(bc.r, bc.g, bc.b, bc.a)
+        targetObj.wishBd.top:SetHeight(m); targetObj.wishBd.bottom:SetHeight(m)
+        targetObj.wishBd.left:SetWidth(m); targetObj.wishBd.right:SetWidth(m)
+        targetObj.wishBd.top:Show(); targetObj.wishBd.bottom:Show(); targetObj.wishBd.left:Show(); targetObj.wishBd.right:Show()
+    end
+
     targetObj:ClearAllPoints()
     targetObj:SetPoint("TOPLEFT", targetObj.wishBd, "TOPLEFT", m, -m)
     targetObj:SetPoint("BOTTOMRIGHT", targetObj.wishBd, "BOTTOMRIGHT", -m, m)
@@ -88,9 +263,7 @@ function CDMod.SuppressDebuffBorder(f)
         if region and region.IsObjectType and region:IsObjectType("Texture") then 
             local isOverlay = false
             pcall(function() isOverlay = (region:GetAtlas() == "UI-HUD-CoolDownManager-IconOverlay" or region:GetTexture() == 6707800) end)
-            if isOverlay then 
-                region:SetAlpha(0); region:Hide(); hooksecurefunc(region, "Show", SafeHide) 
-            end 
+            if isOverlay then region:SetAlpha(0); region:Hide(); hooksecurefunc(region, "Show", SafeHide) end 
         end 
     end
 end
@@ -105,7 +278,7 @@ end
 
 function CDMod:ApplySwipeSettings(frame) 
     if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable == false then return end
-    if not frame or not frame.Cooldown then return end
+    
     if frame.CooldownFlash and not frame._wishFlashHooked then
         hooksecurefunc(frame.CooldownFlash, "Show", function(self) self:Hide(); if self.FlashAnim then self.FlashAnim:Stop() end end)
         if frame.CooldownFlash.FlashAnim and frame.CooldownFlash.FlashAnim.Play then hooksecurefunc(frame.CooldownFlash.FlashAnim, "Play", function(self) self:Stop(); frame.CooldownFlash:Hide() end) end
@@ -116,7 +289,14 @@ function CDMod:ApplySwipeSettings(frame)
         local db = WF.db.cooldownCustom; local rev = db.reverseSwipe; if rev == nil then rev = true end
         cd:SetReverse(rev); cd:SetUseCircularEdge(false)
         
-        local iconTex = frame.Icon and (frame.Icon.Icon or frame.Icon) or frame
+        local iconTex = nil
+        if type(frame.Icon) == "table" then
+            iconTex = frame.Icon.Icon or frame.Icon
+        elseif type(frame.icon) == "table" then
+            iconTex = frame.icon
+        end
+        if not iconTex then iconTex = frame end
+
         local realAnchor = iconTex.wishBd or iconTex
         cd:ClearAllPoints(); cd:SetAllPoints(realAnchor); cd:SetFrameLevel(frame:GetFrameLevel() + (isMain and 2 or 1))
 
@@ -145,8 +325,11 @@ function CDMod:ApplySwipeSettings(frame)
         end
         ForceSwipeColor(cd)
     end
+    
     if frame.Cooldown then ApplyToCooldown(frame.Cooldown, true) end
-    for _, child in pairs({frame:GetChildren()}) do if child:IsObjectType("Cooldown") and child ~= frame.Cooldown then ApplyToCooldown(child, false) end end
+    if frame.cd then ApplyToCooldown(frame.cd, true) end 
+
+    for _, child in pairs({frame:GetChildren()}) do if child:IsObjectType("Cooldown") and child ~= frame.Cooldown and child ~= frame.cd then ApplyToCooldown(child, false) end end
 end
 
 local function FormatText(t, isStack, cdSize, cdColor, cdPos, cdX, cdY, stackSize, stackColor, stackPos, stackX, stackY, fontPath, outline, targetRefStack, targetRefCD) 
@@ -177,11 +360,10 @@ function CDMod:ApplyText(frame, category)
         if cfg.showIcon ~= false then
             local iconObj = type(frame.Icon) == "table" and (frame.Icon.IsObjectType and frame.Icon:IsObjectType("Texture") and frame.Icon or frame.Icon.Icon) or frame.Icon
             targetRefStack = iconObj and iconObj.wishBd or iconObj or frame; targetRefCD = frame.Bar and frame.Bar.wishBd or frame.Bar or frame
-        else 
-            targetRefStack = frame.Bar and frame.Bar.wishBd or frame.Bar or frame; targetRefCD = targetRefStack 
-        end
+        else targetRefStack = frame.Bar and frame.Bar.wishBd or frame.Bar or frame; targetRefCD = targetRefStack end
     else
         local iconObj = type(frame.Icon) == "table" and (frame.Icon.IsObjectType and frame.Icon:IsObjectType("Texture") and frame.Icon or frame.Icon.Icon) or frame.Icon
+        if not iconObj and type(frame.icon) == "table" and frame.icon.IsObjectType and frame.icon:IsObjectType("Texture") then iconObj = frame.icon end
         targetRefStack = iconObj and iconObj.wishBd or iconObj or frame; targetRefCD = targetRefStack
     end
     
@@ -205,46 +387,94 @@ function CDMod:ApplyText(frame, category)
             local region = select(k, frame.Cooldown:GetRegions()); 
             if region and region.IsObjectType and region:IsObjectType("FontString") and region ~= stackFS then FormatText(region, false, cdSize, cdColor, cdPos, cdX, cdY, stackSize, stackColor, stackPos, stackX, stackY, fontPath, outline, targetRefStack, targetRefCD) end 
         end 
+    elseif frame.cd then
+        if frame.cd.timer and frame.cd.timer.text then FormatText(frame.cd.timer.text, false, cdSize, cdColor, cdPos, cdX, cdY, stackSize, stackColor, stackPos, stackX, stackY, fontPath, outline, targetRefStack, targetRefCD) end
+        for k = 1, select("#", frame.cd:GetRegions()) do 
+            local region = select(k, frame.cd:GetRegions()); 
+            if region and region.IsObjectType and region:IsObjectType("FontString") and region ~= stackFS then FormatText(region, false, cdSize, cdColor, cdPos, cdX, cdY, stackSize, stackColor, stackPos, stackX, stackY, fontPath, outline, targetRefStack, targetRefCD) end 
+        end 
+    end
+
+    local isSkillGroup = (category == "Essential" or category == "Utility" or category == "Defensive" or category == "ExtraMonitor" or (category and string.match(category, "^CustomRow")))
+    
+    if isSkillGroup and cfg.showHotkey then
+        if not frame.wishHotkey then frame.wishHotkey = frame.wishTextContainer:CreateFontString(nil, "OVERLAY") end
+        
+        local info = frame.cooldownInfo or (frame.GetCooldownInfo and frame:GetCooldownInfo())
+        local actualID = tonumber(CDMod.ResolveActualSpellID and CDMod.ResolveActualSpellID(info, false) or (info and info.spellID))
+        local itemID = nil
+        
+        if frame.isExtraMonitor then
+            if frame.dbKey and frame.dbKey:match("^item_") then 
+                itemID = tonumber(frame.spellID or frame.id) 
+                actualID = nil
+            else
+                actualID = tonumber(frame.spellID or frame.id)
+            end
+        end
+        
+        local hotkeyText = GetHotkey(actualID, itemID)
+        
+        local hkSize = cfg.hkFontSize or 12
+        local hkColor = cfg.hkFontColor or {r=0.8, g=0.8, b=0.8, a=1}
+        local hkPos = cfg.hkPosition or "TOPRIGHT"
+        
+        FormatText(frame.wishHotkey, false, hkSize, hkColor, hkPos, cfg.hkXOffset or 0, cfg.hkYOffset or 0, hkSize, hkColor, hkPos, cfg.hkXOffset or 0, cfg.hkYOffset or 0, fontPath, outline, targetRefStack, targetRefCD)
+        frame.wishHotkey:SetText(hotkeyText)
+        frame.wishHotkey:Show()
+    else 
+        if frame.wishHotkey then frame.wishHotkey:Hide() end 
     end
 end
 
-local function ApplyIconAlignment(f, w, h)
-    local isTex = type(f.Icon) == "table" and f.Icon.IsObjectType and f.Icon:IsObjectType("Texture")
-    local iconTex = isTex and f.Icon or (f.Icon and f.Icon.Icon) or f.Icon
-    local iconFrame = isTex and f or f.Icon
+local function ApplyIconAlignment(f, cfg, w, h, overrideDB)
+    local useOverrideBd = overrideDB and overrideDB.borderEnable ~= nil
+    local bdEnable = useOverrideBd and overrideDB.borderEnable or (cfg.borderEnable ~= false)
+    local bdSize = bdEnable and (useOverrideBd and (overrideDB.borderSize or 1) or (cfg.borderSize or 1)) or 0
+    local bdColor = (useOverrideBd and overrideDB.borderColor) or cfg.borderColor
+
+    local iconTex = nil; local iconFrame = f
+    if type(f.Icon) == "table" then
+        if f.Icon.IsObjectType and f.Icon:IsObjectType("Texture") then iconTex = f.Icon
+        elseif f.Icon.Icon then iconTex = f.Icon.Icon; iconFrame = f.Icon
+        else iconTex = f.Icon; iconFrame = f.Icon end
+    elseif type(f.icon) == "table" and f.icon.IsObjectType and f.icon:IsObjectType("Texture") then iconTex = f.icon end
+    if not iconTex and type(f.GetNormalTexture) == "function" then iconTex = f:GetNormalTexture() end
 
     if iconTex then
-        local iconBd = CDMod.ApplyElvUISkin(iconTex, iconFrame)
+        local iconBd = CDMod.ApplyElvUISkin(iconTex, iconFrame, bdSize, bdColor)
         iconBd:SetSize(w, h); iconBd:Show()
 
-        -- 【VFLOW 级架构】：整体移动并缩放原生 f.Icon 框架
-        if not isTex and f.Icon then
-            f.Icon:SetSize(w, h)
-            f.Icon:ClearAllPoints()
-            f.Icon:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
-            
-            iconBd:ClearAllPoints()
-            iconBd:SetAllPoints(f.Icon)
+        if iconFrame ~= f and type(iconFrame.SetSize) == "function" then
+            iconFrame:SetSize(w, h); iconFrame:ClearAllPoints(); iconFrame:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
+            iconBd:ClearAllPoints(); iconBd:SetAllPoints(iconFrame)
         else
-            iconBd:ClearAllPoints()
-            iconBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
+            iconBd:ClearAllPoints(); iconBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
         end
-
         if iconTex.Show then iconTex:Show() end
         CDMod.ApplyTexCoord(iconTex, w, h)
     end
 end
 
-local function ApplyBarAlignment(f, cfg, w, h, barH, gap)
+local function ApplyBarAlignment(f, cfg, w, h, barH, gap, overrideDB)
+    local useOverrideBd = overrideDB and overrideDB.borderEnable ~= nil
+    local bdEnable = useOverrideBd and overrideDB.borderEnable or (cfg.borderEnable ~= false)
+    local bdSize = bdEnable and (useOverrideBd and (overrideDB.borderSize or 1) or (cfg.borderSize or 1)) or 0
+    local bdColor = (useOverrideBd and overrideDB.borderColor) or cfg.borderColor
+
     local iconPos = cfg.iconPosition or "LEFT"; local barPos = cfg.barPosition or "CENTER"; local showIcon = (cfg.showIcon ~= false) 
     f._wf_showIcon = showIcon 
     
-    local isTex = type(f.Icon) == "table" and f.Icon.IsObjectType and f.Icon:IsObjectType("Texture")
-    local iconTex = isTex and f.Icon or (f.Icon and f.Icon.Icon) or f.Icon
-    local iconFrame = isTex and f or f.Icon
+    local iconTex = nil; local iconFrame = f
+    if type(f.Icon) == "table" then
+        if f.Icon.IsObjectType and f.Icon:IsObjectType("Texture") then iconTex = f.Icon
+        elseif f.Icon.Icon then iconTex = f.Icon.Icon; iconFrame = f.Icon
+        else iconTex = f.Icon; iconFrame = f.Icon end
+    elseif type(f.icon) == "table" and f.icon.IsObjectType and f.icon:IsObjectType("Texture") then iconTex = f.icon end
+    if not iconTex and type(f.GetNormalTexture) == "function" then iconTex = f:GetNormalTexture() end
+
     local barObj = f.Bar or f.StatusBar
 
-    -- AYIJE 防御：封印进度条自带底色和材质
     if barObj then
         if barObj.BarBG then
             barObj.BarBG:Hide(); barObj.BarBG:SetAlpha(0)
@@ -264,108 +494,64 @@ local function ApplyBarAlignment(f, cfg, w, h, barH, gap)
         end
     end
     
-    local iconBd = CDMod.ApplyElvUISkin(iconTex, iconFrame)
-    local barBd = CDMod.ApplyElvUISkin(barObj, f)
+    local iconBd = CDMod.ApplyElvUISkin(iconTex, iconFrame, bdSize, bdColor)
+    local barBd = CDMod.ApplyElvUISkin(barObj, f, bdSize, bdColor)
     
-    iconBd:ClearAllPoints(); barBd:ClearAllPoints()
+    if iconBd then iconBd:ClearAllPoints() end
+    if barBd then barBd:ClearAllPoints() end
     
-    local itemH = math.max(h, barH)
-    local actualBarW = w
+    local itemH = math.max(h, barH); local actualBarW = w
     
     if showIcon then
         if f.Cooldown then f.Cooldown:SetAlpha(1) end
-        iconBd:SetSize(h, h); iconBd:Show()
+        if iconBd then iconBd:SetSize(h, h); iconBd:Show() end
+        if iconFrame ~= f and type(iconFrame.Show) == "function" then iconFrame:Show() end
+        if iconTex and type(iconTex.Show) == "function" then iconTex:Show() end
+        if iconTex and type(iconTex.SetTexCoord) == "function" then CDMod.ApplyTexCoord(iconTex, h, h) end 
         
-        if not isTex and f.Icon and f.Icon.Show then f.Icon:Show() end
-        if iconTex and iconTex.Show then iconTex:Show() end
-        if iconTex and iconTex.SetTexCoord then CDMod.ApplyTexCoord(iconTex, h, h) end 
-        
-        actualBarW = math.max(1, w - h - gap); barBd:SetSize(actualBarW, barH); barBd:Show()
+        actualBarW = math.max(1, w - h - gap); if barBd then barBd:SetSize(actualBarW, barH); barBd:Show() end
         
         local iconY, barY
-        if barPos == "TOP" then 
-            iconY = itemH - h; barY = itemH - barH 
-        elseif barPos == "BOTTOM" then 
-            iconY = 0; barY = 0 
-        else 
-            iconY = CDMod.PixelSnap((itemH - h) / 2); barY = CDMod.PixelSnap((itemH - barH) / 2) 
-        end
+        if barPos == "TOP" then iconY = itemH - h; barY = itemH - barH 
+        elseif barPos == "BOTTOM" then iconY = 0; barY = 0 
+        else iconY = CDMod.PixelSnap((itemH - h) / 2); barY = CDMod.PixelSnap((itemH - barH) / 2) end
         
         local iconX, barX = 0, 0
-        if iconPos == "LEFT" then 
-            iconX = 0; barX = h + gap
-        else 
-            barX = 0; iconX = actualBarW + gap
-        end
+        if iconPos == "LEFT" then iconX = 0; barX = h + gap else barX = 0; iconX = actualBarW + gap end
 
-        -- 【VFLOW 级核心架构修复】：带着所有暴雪原生底图，整体移动原生 f.Icon 框架！
-        if not isTex and f.Icon then
-            f.Icon:SetSize(h, h)
-            f.Icon:ClearAllPoints()
-            f.Icon:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", iconX, iconY)
-            
-            iconBd:ClearAllPoints()
-            iconBd:SetAllPoints(f.Icon)
+        if iconFrame ~= f and type(iconFrame.SetSize) == "function" then
+            iconFrame:SetSize(h, h); iconFrame:ClearAllPoints(); iconFrame:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", iconX, iconY)
+            if iconBd then iconBd:ClearAllPoints(); iconBd:SetAllPoints(iconFrame) end
         else
-            iconBd:ClearAllPoints()
-            iconBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", iconX, iconY)
+            if iconBd then iconBd:ClearAllPoints(); iconBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", iconX, iconY) end
         end
-        
-        barBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", barX, barY)
+        if barBd then barBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", barX, barY) end
     else
-        if f.Cooldown then 
-            f.Cooldown:SetAlpha(0)
-            f.Cooldown:SetDrawSwipe(false)
-            f.Cooldown:SetDrawEdge(false)
-            f.Cooldown:SetDrawBling(false)
-        end
-        iconBd:Hide(); if iconTex and iconTex.Hide then iconTex:Hide() end
+        if f.Cooldown then f.Cooldown:SetAlpha(0); f.Cooldown:SetDrawSwipe(false); f.Cooldown:SetDrawEdge(false); f.Cooldown:SetDrawBling(false) end
+        if iconBd then iconBd:Hide() end; if iconTex and type(iconTex.Hide) == "function" then iconTex:Hide() end
         
-        -- 当隐藏图标时，将整个 f.Icon 框架放逐到屏幕外，彻底杜绝任何幽灵黑框泄露
-        if not isTex and f.Icon then 
-            if f.Icon.Hide then pcall(function() f.Icon:Hide() end) end 
-            f.Icon:ClearAllPoints()
-            f.Icon:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", -9999, -9999)
+        if iconFrame ~= f and type(iconFrame.ClearAllPoints) == "function" then 
+            if type(iconFrame.Hide) == "function" then pcall(function() iconFrame:Hide() end) end 
+            iconFrame:ClearAllPoints(); iconFrame:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", -9999, -9999)
         end
         
-        barBd:SetSize(w, barH); barBd:Show()
-        
-        local barY
-        if barPos == "TOP" then 
-            barY = itemH - barH 
-        elseif barPos == "BOTTOM" then 
-            barY = 0 
-        else 
-            barY = CDMod.PixelSnap((itemH - barH) / 2) 
+        if barBd then 
+            barBd:SetSize(w, barH); barBd:Show()
+            local barY = (barPos == "TOP") and (itemH - barH) or ((barPos == "BOTTOM") and 0 or CDMod.PixelSnap((itemH - barH) / 2))
+            barBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, barY)
         end
-        barBd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, barY)
     end
     
     local texPath = (LSM and LSM:Fetch("statusbar", cfg.barTexture)) or "Interface\\TargetingFrame\\UI-StatusBar"
     local barColor = cfg.barColor or {r=0, g=0.8, b=1, a=1}
     
     if barObj then
-        local isPreview = (not f.cooldownInfo) or 
-                          (EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive()) or 
-                          (WF.UI and WF.UI.MainFrame and WF.UI.MainFrame:IsShown())
-
-        if type(barObj.SetStatusBarTexture) == "function" then
-            barObj:SetStatusBarTexture(texPath)
-        elseif type(barObj.SetTexture) == "function" then
-            barObj:SetTexture(texPath)
-        end
-
-        if not barObj.wfVirtualFill then
-            barObj.wfVirtualFill = barObj:CreateTexture(nil, "OVERLAY")
-            barObj.wfVirtualFill:SetPoint("TOPLEFT")
-            barObj.wfVirtualFill:SetPoint("BOTTOMLEFT")
-        end
+        local isPreview = (not f.cooldownInfo) or (EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive()) or (WF.UI and WF.UI.MainFrame and WF.UI.MainFrame:IsShown())
+        if type(barObj.SetStatusBarTexture) == "function" then barObj:SetStatusBarTexture(texPath) elseif type(barObj.SetTexture) == "function" then barObj:SetTexture(texPath) end
+        if not barObj.wfVirtualFill then barObj.wfVirtualFill = barObj:CreateTexture(nil, "OVERLAY"); barObj.wfVirtualFill:SetPoint("TOPLEFT"); barObj.wfVirtualFill:SetPoint("BOTTOMLEFT") end
         
         if isPreview then
-            barObj.wfVirtualFill:SetTexture(texPath)
-            barObj.wfVirtualFill:SetVertexColor(barColor.r, barColor.g, barColor.b, barColor.a or 1)
-            barObj.wfVirtualFill:SetWidth(math.max(1, actualBarW * 0.8))
-            barObj.wfVirtualFill:Show()
+            barObj.wfVirtualFill:SetTexture(texPath); barObj.wfVirtualFill:SetVertexColor(barColor.r, barColor.g, barColor.b, barColor.a or 1); barObj.wfVirtualFill:SetWidth(math.max(1, actualBarW * 0.8)); barObj.wfVirtualFill:Show()
             if barObj.GetStatusBarTexture and barObj:GetStatusBarTexture() then barObj:GetStatusBarTexture():SetAlpha(0) end
         else
             barObj.wfVirtualFill:Hide()
@@ -374,10 +560,10 @@ local function ApplyBarAlignment(f, cfg, w, h, barH, gap)
     end
 end
 
-local function StyleFrameCommon(f, cfg, w, h, catName)
+local function StyleFrameCommon(f, cfg, w, h, catName, overrideDB)
     local isBar = (catName == "BuffBar"); local barH = CDMod.PixelSnap(cfg.barHeight or h); local gap = CDMod.PixelSnap(cfg.iconGap or 2)
     f:SetSize(w, math.max(h, barH))
-    if isBar then ApplyBarAlignment(f, cfg, w, h, barH, gap) else ApplyIconAlignment(f, w, h) end
+    if isBar then ApplyBarAlignment(f, cfg, w, h, barH, gap, overrideDB) else ApplyIconAlignment(f, cfg, w, h, overrideDB) end
 end
 
 function CDMod:ImmediateStyleFrame(frame, category)
@@ -393,11 +579,18 @@ function CDMod:ImmediateStyleFrame(frame, category)
     if db and db.CustomBuffRows then for _, r in ipairs(db.CustomBuffRows) do if category == r then isBuffGroup = true; break end end end
 
     local info = frame.cooldownInfo or (frame.GetCooldownInfo and frame:GetCooldownInfo())
+    if not info and frame.isExtraMonitor then
+        local emType = frame.dbKey and frame.dbKey:match("^(%w+)_")
+        info = { spellID = frame.spellID or frame.id, itemID = (emType == "item" and (frame.spellID or frame.id) or nil), isExtraMonitor = true } 
+    elseif not info and category == "ItemBuff" then
+        info = { spellID = frame.spellID or frame.id, itemID = frame.id }
+    end
+
     if isBuffGroup then if CDMod.ShouldHideBuff(info) then CDMod.PhysicalHideFrame(frame); return end 
     else if CDMod.ShouldHideCD(info) then CDMod.PhysicalHideFrame(frame); return end end
 
     local targetAlpha = 1
-    local sid = CDMod.ResolveActualSpellID(info, isBuffGroup)
+    local sid = CDMod.ResolveActualSpellID and CDMod.ResolveActualSpellID(info, isBuffGroup) or (info and info.spellID)
     local dbO_match = (db and db.spellOverrides and sid) and db.spellOverrides[tostring(sid)] or nil
 
     if dbO_match and dbO_match.idleAlphaEnable then
@@ -416,9 +609,10 @@ function CDMod:ImmediateStyleFrame(frame, category)
         
         local maskTargetFrame = frame.Icon or frame
         local maskTargetTex = type(frame.Icon) == "table" and (frame.Icon.Icon or frame.Icon) or frame.Icon
+        if not maskTargetTex and type(frame.icon) == "table" and frame.icon.IsObjectType and frame.icon:IsObjectType("Texture") then maskTargetTex = frame.icon end
         CDMod.RemoveBarIconMask(maskTargetFrame, maskTargetTex)
         
-        StyleFrameCommon(frame, cfg, w, h, category)
+        StyleFrameCommon(frame, cfg, w, h, category, dbO_match)
         
         if category == "BuffBar" and cfg.barColor and frame.Bar then
             local bc = cfg.barColor
@@ -441,5 +635,5 @@ function CDMod:ImmediateStyleFrame(frame, category)
         end
     end
     frame.wishFlexCategory = category
-    self:ApplyText(frame, category); self:ApplySwipeSettings(frame); CDMod.SetupFrameGlow(frame); CDMod.ApplySpellOverrides(frame)
+    self:ApplyText(frame, category); self:ApplySwipeSettings(frame); if CDMod.SetupFrameGlow then CDMod.SetupFrameGlow(frame) end; if CDMod.ApplySpellOverrides then CDMod.ApplySpellOverrides(frame) end
 end

@@ -12,6 +12,35 @@ local GetTime, tonumber, tostring, type = GetTime, tonumber, tostring, type
 local DEF_TEXT_COLOR = {r=1, g=1, b=1}
 local DEF_DIVIDER_COLOR = {r=1, g=1, b=1, a=1}
 
+local function ApplyTextureGradient(bar, matchedColor, orientation)
+    if not bar then return end
+    local tex = bar:GetStatusBarTexture()
+    if not tex then return end
+    
+    tex:SetHorizTile(false)
+    tex:SetVertTile(false)
+    
+    local orient = orientation or "HORIZONTAL"
+
+    if matchedColor and matchedColor.isGradient then
+        local sC = matchedColor.startC or {r=1,g=1,b=1,a=1}
+        local eC = matchedColor.endC or {r=1,g=1,b=1,a=1}
+        if CreateColor then
+            tex:SetGradient(orient, CreateColor(sC.r, sC.g, sC.b, sC.a or 1), CreateColor(eC.r, eC.g, eC.b, eC.a or 1))
+        else
+            tex:SetGradient(orient, sC.r, sC.g, sC.b, sC.a or 1, eC.r, eC.g, eC.b, eC.a or 1)
+        end
+    else
+        local r, g, b, a = bar:GetStatusBarColor()
+        if not r then r, g, b, a = 1, 1, 1, 1 end 
+        if CreateColor then
+            tex:SetGradient(orient, CreateColor(r, g, b, a), CreateColor(r, g, b, a))
+        else
+            tex:SetGradient(orient, r, g, b, a, r, g, b, a)
+        end
+    end
+end
+
 function CR:ApplyBarGraphics(bar, barCfg, db)
     if not bar or not bar.statusBar or not barCfg then return end
     
@@ -58,28 +87,64 @@ function CR:ApplyBarGraphics(bar, barCfg, db)
         bar.statusBar.bg:SetTexture(bgTexPath)
         bar.statusBar.bg:SetVertexColor(bgc.r or 0, bgc.g or 0, bgc.b or 0, bgc.a or 0.5)
     end
+
+    if bar.bdFrame and barCfg.borderEnable ~= nil then
+        local bdSize = tonumber(barCfg.borderSize) or 1
+        local m = CR.GetOnePixelSize() * bdSize
+        local bc = barCfg.borderColor or {r=0, g=0, b=0, a=1}
+        
+        if barCfg.borderEnable then
+            bar.bdFrame.top:SetColorTexture(bc.r, bc.g, bc.b, bc.a)
+            bar.bdFrame.bottom:SetColorTexture(bc.r, bc.g, bc.b, bc.a)
+            bar.bdFrame.left:SetColorTexture(bc.r, bc.g, bc.b, bc.a)
+            bar.bdFrame.right:SetColorTexture(bc.r, bc.g, bc.b, bc.a)
+            bar.bdFrame.top:SetHeight(m); bar.bdFrame.bottom:SetHeight(m)
+            bar.bdFrame.left:SetWidth(m); bar.bdFrame.right:SetWidth(m)
+            bar.bdFrame:Show()
+        else
+            bar.bdFrame:Hide()
+        end
+    end
 end
 
 function CR:UpdateDividers(bar, maxVal)
     bar.dividers = bar.dividers or {}
     local numMax = (CR.IsSecret(maxVal) and 1) or (tonumber(maxVal) or 1)
     if numMax <= 0 then numMax = 1 end; if numMax > 20 then numMax = 20 end 
-    local width = bar.gridFrame:GetWidth() or 250
-    if bar._lastDividerMax == numMax and bar._lastDividerWidth == width then return end
-    bar._lastDividerMax = numMax; bar._lastDividerWidth = width
-    local numDividers = numMax > 1 and (numMax - 1) or 0
-    local segWidth = width / numMax
+    
     local targetFrame = bar.gridFrame
+    local width = targetFrame:GetWidth() or 250
+    local height = targetFrame:GetHeight() or 10
+    
+    -- 动态判断主资源条是否也是垂直模式
+    local isVert = (bar.statusBar and bar.statusBar:GetOrientation() == "VERTICAL")
+    
+    local stateHash = numMax .. "_" .. width .. "_" .. height .. "_" .. tostring(isVert)
+    if bar._lastDividerState == stateHash then return end
+    bar._lastDividerState = stateHash
+
+    local numDividers = numMax > 1 and (numMax - 1) or 0
+    local segWidth = isVert and (height / numMax) or (width / numMax)
     
     local pSize = CR.GetOnePixelSize()
     for i = 1, numDividers do
         if not bar.dividers[i] then 
             local tex = targetFrame:CreateTexture(nil, "OVERLAY", nil, 7); tex:SetColorTexture(0, 0, 0, 1); bar.dividers[i] = tex 
         end
-        bar.dividers[i]:SetWidth(pSize); local offset = CR.PixelSnap(segWidth * i)
+        
+        -- 精确浮点定位，消除反向填充缝隙
+        local offset = segWidth * i
         bar.dividers[i]:ClearAllPoints()
-        bar.dividers[i]:SetPoint("TOPLEFT", targetFrame, "TOPLEFT", offset, 0)
-        bar.dividers[i]:SetPoint("BOTTOMLEFT", targetFrame, "BOTTOMLEFT", offset, 0)
+        
+        if isVert then
+            bar.dividers[i]:SetHeight(pSize)
+            bar.dividers[i]:SetPoint("BOTTOMLEFT", targetFrame, "BOTTOMLEFT", 0, offset)
+            bar.dividers[i]:SetPoint("BOTTOMRIGHT", targetFrame, "BOTTOMRIGHT", 0, offset)
+        else
+            bar.dividers[i]:SetWidth(pSize)
+            bar.dividers[i]:SetPoint("TOPLEFT", targetFrame, "TOPLEFT", offset, 0)
+            bar.dividers[i]:SetPoint("BOTTOMLEFT", targetFrame, "BOTTOMLEFT", offset, 0)
+        end
         bar.dividers[i]:Show()
     end
     for i = numDividers + 1, #bar.dividers do if bar.dividers[i] then bar.dividers[i]:Hide() end end
@@ -104,27 +169,37 @@ function CR:UpdateDividers(bar, maxVal)
     end
 end
 
-function CR:UpdateMonitorDividers(f, numMax, width)
+function CR:UpdateMonitorDividers(f, numMax, widthOrHeight)
     local parentFrame = f.chargeBar or f
     
     if not f.dividerFrame then
         f.dividerFrame = CreateFrame("Frame", nil, parentFrame)
         f.dividerFrame:SetFrameLevel(parentFrame:GetFrameLevel() + 15)
         
-        f.dividerFrame:SetScript("OnSizeChanged", function(self, newWidth)
+        f.dividerFrame:SetScript("OnSizeChanged", function(self, newWidth, newHeight)
             if not self.numMax or self.numMax <= 1 then return end
             if not newWidth or newWidth <= 0 then return end
+            if not newHeight or newHeight <= 0 then return end
             
-            local exactSeg = newWidth / self.numMax
+            local isVert = self.isVertical
+            local exactSeg = isVert and (newHeight / self.numMax) or (newWidth / self.numMax)
             local pSize = CR.GetOnePixelSize()
             
             for i = 1, self.numMax - 1 do
                 if self.divs and self.divs[i] then
-                    local offset = CR.PixelSnap(exactSeg * i)
-                    self.divs[i]:SetWidth(pSize)
+                    local offset = exactSeg * i
+                    -- 核心修复：绝对禁止使用SetWidth(0)，使用纯点锚定逻辑覆盖
                     self.divs[i]:ClearAllPoints()
-                    self.divs[i]:SetPoint("TOPLEFT", self, "TOPLEFT", offset, 0)
-                    self.divs[i]:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", offset, 0)
+                    
+                    if isVert then
+                        self.divs[i]:SetHeight(pSize)
+                        self.divs[i]:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 0, offset)
+                        self.divs[i]:SetPoint("BOTTOMRIGHT", self, "BOTTOMRIGHT", 0, offset)
+                    else
+                        self.divs[i]:SetWidth(pSize)
+                        self.divs[i]:SetPoint("TOPLEFT", self, "TOPLEFT", offset, 0)
+                        self.divs[i]:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", offset, 0)
+                    end
                 end
             end
         end)
@@ -141,12 +216,14 @@ function CR:UpdateMonitorDividers(f, numMax, width)
     numMax = tonumber(numMax) or 1
     f.dividerFrame.numMax = numMax
 
+    local isIndependent = (f.cfg and f.cfg.independent)
+    f.dividerFrame.isVertical = (isIndependent and f.cfg.orientation == "VERTICAL")
+
     if numMax <= 1 then 
         for _, d in ipairs(f.dividers) do d:Hide() end
         return 
     end 
     
-    local pixelSize = CR.GetOnePixelSize()
     for i = 1, numMax - 1 do
         if not f.dividers[i] then 
             local tex = f.dividerFrame:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -159,9 +236,11 @@ function CR:UpdateMonitorDividers(f, numMax, width)
     for i = numMax, #f.dividers do 
         if f.dividers[i] then f.dividers[i]:Hide() end 
     end
-    local currentWidth = parentFrame:GetWidth() or width
-    if currentWidth and currentWidth > 0 then
-        f.dividerFrame:GetScript("OnSizeChanged")(f.dividerFrame, currentWidth)
+    
+    local currentWidth = parentFrame:GetWidth() or f.calcWidth
+    local currentHeight = parentFrame:GetHeight() or f.calcHeight
+    if currentWidth and currentWidth > 0 and currentHeight and currentHeight > 0 then
+        f.dividerFrame:GetScript("OnSizeChanged")(f.dividerFrame, currentWidth, currentHeight)
     end
 end
 
@@ -194,7 +273,10 @@ function CR:FormatSafeText(bar, textCfg, current, maxVal, isTime, pType, showTex
     end
     
     local c = textCfg.color or DEF_TEXT_COLOR
-    if bar._lastColorR ~= c.r or bar._lastColorG ~= c.g or bar._lastColorB ~= c.b then bar.text:SetTextColor(c.r, c.g, c.b); bar.timerText:SetTextColor(c.r, c.g, c.b); bar._lastColorR = c.r; bar._lastColorG = c.g; bar._lastColorB = c.b end
+    if bar._lastColorR ~= c.r or bar._lastColorG ~= c.g or bar._lastColorB ~= c.b then 
+        bar.text:SetTextColor(c.r, c.g, c.b); bar.timerText:SetTextColor(c.r, c.g, c.b)
+        bar._lastColorR = c.r; bar._lastColorG = c.g; bar._lastColorB = c.b 
+    end
     
     local mainAnchor = textCfg.textAnchor or "CENTER"; local timerAnchor = textCfg.timerAnchor or "CENTER"
 
@@ -217,7 +299,7 @@ function CR:FormatSafeText(bar, textCfg, current, maxVal, isTime, pType, showTex
     else
         if showText ~= false then
             if pType == 0 then local scale = (_G.CurveConstants and _G.CurveConstants.ScaleTo100) or 100; local perc = UnitPowerPercent("player", pType, false, scale); newMainText = string_format("%d", tonumber(perc) or 0)
-            elseif CR.IsSecret(current) or CR.IsSecret(maxVal) then newMainText = current
+            elseif CR.IsSecret and CR.IsSecret(current) or (CR.IsSecret and CR.IsSecret(maxVal)) then newMainText = current
             else if isTime then newMainText = CR.GetDurationTextSafe(current) else newMainText = CR.SafeFormatNum(current) end end
         end
     end
@@ -231,13 +313,13 @@ function CR:FormatSafeText(bar, textCfg, current, maxVal, isTime, pType, showTex
         else bar.text:Hide(); bar._isMainShown = false end
     else
         bar.text:SetAlpha(1)
-        if CR.IsSecret(newMainText) then pcall(bar.text.SetText, bar.text, newMainText); bar._lastMainString = nil
+        if CR.IsSecret and CR.IsSecret(newMainText) then pcall(bar.text.SetText, bar.text, newMainText); bar._lastMainString = nil
         else if type(bar._lastMainString) ~= "string" or bar._lastMainString ~= newMainText then bar.text:SetText(newMainText); bar._lastMainString = newMainText end end
         if not bar._isMainShown then bar.text:Show(); bar._isMainShown = true end
     end
 
     if textCfg.timerEnable ~= false then
-        if CR.IsSecret(newTimerText) then pcall(bar.timerText.SetText, bar.timerText, newTimerText); bar._lastTimerString = nil
+        if CR.IsSecret and CR.IsSecret(newTimerText) then pcall(bar.timerText.SetText, bar.timerText, newTimerText); bar._lastTimerString = nil
         else if type(bar._lastTimerString) ~= "string" or bar._lastTimerString ~= newTimerText then bar.timerText:SetText(newTimerText); bar._lastTimerString = newTimerText end end
         if not bar._isTimerShown then bar.timerText:Show(); bar._isTimerShown = true end
     else if bar._isTimerShown then bar.timerText:Hide(); bar._isTimerShown = false end end
@@ -371,8 +453,10 @@ end
 
 function CR:RenderMonitors(activeData, wmDB)
     if WF.db and WF.db.classResource and WF.db.classResource.enable == false then return end
-
-    self:WakeUp() 
+    if self.WakeUp then 
+        self:WakeUp() 
+    end
+    
     self.lastWmDB = wmDB
     if WF.BarEngine then WF.BarEngine:PrepareRender() end
     self.ActiveMonitorFrames = self.ActiveMonitorFrames or {}; wipe(self.ActiveMonitorFrames)
@@ -394,29 +478,66 @@ function CR:RenderMonitors(activeData, wmDB)
         local visualConfig = self:PrepareMonitorStyle(f, wmDB, data.cfg, data.spellID)
         visualConfig.mode = data.cfg and data.cfg.mode or "time"
         local isTextMode = (data.cfg and data.cfg.displayMode == "text")
+        local isIndependent = (data.cfg and data.cfg.independent)
+        local orient = (isIndependent and data.cfg.orientation) or "HORIZONTAL"
 
         if data.isEclipse then
             local sData = data.solar; local lData = data.lunar; local isDual = (sData ~= nil and lData ~= nil)
             if isDual then
                 f.isDualEclipse = true; visualConfig.reverseFill = true 
                 if sData.isConfigPreview then sData.state.isActive = true; sData.state.count = 2; sData.state.durObjC = { startTime = GetTime(), duration = 5 } end
+                
+                local sMatchedColor = nil
+                if CR.GetDynamicBarColor then
+                    sMatchedColor = CR.GetDynamicBarColor(sData.state.count, sData.state.maxVal, sData.cfg, visualConfig.color)
+                    if sMatchedColor then 
+                        if sMatchedColor.isGradient then
+                            visualConfig.color.r, visualConfig.color.g, visualConfig.color.b, visualConfig.color.a = 1,1,1,1
+                        else
+                            visualConfig.color.r = sMatchedColor.r or 1; visualConfig.color.g = sMatchedColor.g or 1; visualConfig.color.b = sMatchedColor.b or 1; visualConfig.color.a = sMatchedColor.a or 1 
+                        end
+                    end
+                end
+
                 f.state = sData.state
                 if WF.BarEngine then WF.BarEngine:UpdateState(f, sData.state, visualConfig) end
 
                 local divW = CR.GetOnePixelSize()
-                if f.chargeBar then f.chargeBar:ClearAllPoints(); f.chargeBar:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1); f.chargeBar:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -(divW/2), 1); pcall(function() f.chargeBar:SetReverseFill(true) end); end
+                if f.chargeBar then 
+                    f.chargeBar:ClearAllPoints(); f.chargeBar:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1); f.chargeBar:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -(divW/2), 1); pcall(function() f.chargeBar:SetReverseFill(true) end); 
+                    ApplyTextureGradient(f.chargeBar, sMatchedColor, orient)
+                end
                 if f.bg then f.bg:ClearAllPoints(); f.bg:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1); f.bg:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -(divW/2), 1); end
                 if f.timerText then f.timerText:ClearAllPoints(); f.timerText:SetPoint("RIGHT", f, "CENTER", -8, 0); f.timerText:SetJustifyH("RIGHT") end
                 
                 local lf = WF.BarEngine:AcquireFrame("WM_48518_LUNAR_SUB"); local lVis = self:PrepareMonitorStyle(lf, wmDB, lData.cfg, lData.spellID)
                 lf:SetParent(f); lf:ClearAllPoints(); lf:SetPoint("TOPLEFT", f, "TOP", (divW/2), 0); lf:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0); lf:Show()
                 
-                lVis.mode = lData.cfg.mode or "time"; lVis.color = lData.cfg.color or {r=0.4, g=0.7, b=1, a=1}; lVis.reverseFill = false; lVis.timerAnchor = "LEFT"; lVis.textAnchor = "LEFT"
+                lVis.mode = lData.cfg.mode or "time"; lVis.reverseFill = false; lVis.timerAnchor = "LEFT"; lVis.textAnchor = "LEFT"
+                local lDefColor = lData.cfg.color or {r=0.4, g=0.7, b=1, a=1}
+                lVis.color.r = lDefColor.r or 1; lVis.color.g = lDefColor.g or 1; lVis.color.b = lDefColor.b or 1; lVis.color.a = lDefColor.a or 1
+                
                 if lData.isConfigPreview then lData.state.isActive = true; lData.state.count = 2; lData.state.durObjC = { startTime = GetTime(), duration = 5 } end
+                
+                local lMatchedColor = nil
+                if CR.GetDynamicBarColor then
+                    lMatchedColor = CR.GetDynamicBarColor(lData.state.count, lData.state.maxVal, lData.cfg, lVis.color)
+                    if lMatchedColor then 
+                        if lMatchedColor.isGradient then
+                            lVis.color.r, lVis.color.g, lVis.color.b, lVis.color.a = 1,1,1,1
+                        else
+                            lVis.color.r = lMatchedColor.r or 1; lVis.color.g = lMatchedColor.g or 1; lVis.color.b = lMatchedColor.b or 1; lVis.color.a = lMatchedColor.a or 1 
+                        end
+                    end
+                end
+
                 lf.state = lData.state
                 if WF.BarEngine then WF.BarEngine:UpdateState(lf, lData.state, lVis) end
 
-                if lf.chargeBar then lf.chargeBar:ClearAllPoints(); lf.chargeBar:SetPoint("TOPLEFT", lf, "TOPLEFT", 1, -1); lf.chargeBar:SetPoint("BOTTOMRIGHT", lf, "BOTTOMRIGHT", -1, 1); pcall(function() lf.chargeBar:SetReverseFill(false) end); end
+                if lf.chargeBar then 
+                    lf.chargeBar:ClearAllPoints(); lf.chargeBar:SetPoint("TOPLEFT", lf, "TOPLEFT", 1, -1); lf.chargeBar:SetPoint("BOTTOMRIGHT", lf, "BOTTOMRIGHT", -1, 1); pcall(function() lf.chargeBar:SetReverseFill(false) end); 
+                    ApplyTextureGradient(lf.chargeBar, lMatchedColor, orient)
+                end
                 if lf.bg then lf.bg:ClearAllPoints(); lf.bg:SetPoint("TOPLEFT", lf, "TOPLEFT", 1, -1); lf.bg:SetPoint("BOTTOMRIGHT", lf, "BOTTOMRIGHT", -1, 1); end
                 if lf.sbBorder then lf.sbBorder:Hide() end
                 if lf.timerText then lf.timerText:ClearAllPoints(); lf.timerText:SetPoint("LEFT", f, "CENTER", 8, 0); lf.timerText:SetJustifyH("LEFT") end
@@ -429,10 +550,26 @@ function CR:RenderMonitors(activeData, wmDB)
             elseif sData then
                 visualConfig.reverseFill = true 
                 if sData.isConfigPreview then sData.state.isActive = true; sData.state.count = 2; sData.state.durObjC = { startTime = GetTime(), duration = 5 } end
+                
+                local matchedColor = nil
+                if CR.GetDynamicBarColor then
+                    matchedColor = CR.GetDynamicBarColor(sData.state.count, sData.state.maxVal, sData.cfg, visualConfig.color)
+                    if matchedColor then 
+                        if matchedColor.isGradient then
+                            visualConfig.color.r, visualConfig.color.g, visualConfig.color.b, visualConfig.color.a = 1,1,1,1
+                        else
+                            visualConfig.color.r = matchedColor.r or 1; visualConfig.color.g = matchedColor.g or 1; visualConfig.color.b = matchedColor.b or 1; visualConfig.color.a = matchedColor.a or 1 
+                        end
+                    end
+                end
+
                 f.state = sData.state
                 if WF.BarEngine then WF.BarEngine:UpdateState(f, sData.state, visualConfig) end
                 
-                if f.chargeBar then f.chargeBar:ClearAllPoints(); f.chargeBar:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1); f.chargeBar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1); pcall(function() f.chargeBar:SetReverseFill(true) end); end
+                if f.chargeBar then 
+                    f.chargeBar:ClearAllPoints(); f.chargeBar:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1); f.chargeBar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1); pcall(function() f.chargeBar:SetReverseFill(true) end); 
+                    ApplyTextureGradient(f.chargeBar, matchedColor, orient)
+                end
                 if f.bg then f.bg:ClearAllPoints(); f.bg:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1); f.bg:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1); end
                 if f.timerText then f.timerText:ClearAllPoints(); f.timerText:SetPoint("RIGHT", f, "RIGHT", -4, 0); f.timerText:SetJustifyH("RIGHT") end
                 if f.sbBorder then if isTextMode then f.sbBorder:Hide() else f.sbBorder:Show() end end
@@ -441,12 +578,33 @@ function CR:RenderMonitors(activeData, wmDB)
                 self:UpdateMonitorDividers(f, 1, f.calcWidth)
 
             elseif lData then
-                local lVis = self:PrepareMonitorStyle(f, wmDB, lData.cfg, lData.spellID); lVis.color = lData.cfg.color or {r=0.4, g=0.7, b=1, a=1}; lVis.reverseFill = false 
+                local lVis = self:PrepareMonitorStyle(f, wmDB, lData.cfg, lData.spellID); 
+                lVis.reverseFill = false 
+                
+                local lDefColor = lData.cfg.color or {r=0.4, g=0.7, b=1, a=1}
+                lVis.color.r = lDefColor.r or 1; lVis.color.g = lDefColor.g or 1; lVis.color.b = lDefColor.b or 1; lVis.color.a = lDefColor.a or 1
+                
                 if lData.isConfigPreview then lData.state.isActive = true; lData.state.count = 2; lData.state.durObjC = { startTime = GetTime(), duration = 5 } end
+                
+                local matchedColor = nil
+                if CR.GetDynamicBarColor then
+                    matchedColor = CR.GetDynamicBarColor(lData.state.count, lData.state.maxVal, lData.cfg, lVis.color)
+                    if matchedColor then 
+                        if matchedColor.isGradient then
+                            lVis.color.r, lVis.color.g, lVis.color.b, lVis.color.a = 1,1,1,1
+                        else
+                            lVis.color.r = matchedColor.r or 1; lVis.color.g = matchedColor.g or 1; lVis.color.b = matchedColor.b or 1; visualConfig.color.a = matchedColor.a or 1 
+                        end
+                    end
+                end
+
                 f.state = lData.state
                 if WF.BarEngine then WF.BarEngine:UpdateState(f, lData.state, lVis) end
                 
-                if f.chargeBar then f.chargeBar:ClearAllPoints(); f.chargeBar:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1); f.chargeBar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1); pcall(function() f.chargeBar:SetReverseFill(false) end); end
+                if f.chargeBar then 
+                    f.chargeBar:ClearAllPoints(); f.chargeBar:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1); f.chargeBar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1); pcall(function() f.chargeBar:SetReverseFill(false) end); 
+                    ApplyTextureGradient(f.chargeBar, matchedColor, orient)
+                end
                 if f.bg then f.bg:ClearAllPoints(); f.bg:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1); f.bg:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1); end
                 if f.timerText then f.timerText:ClearAllPoints(); f.timerText:SetPoint("LEFT", f, "LEFT", 4, 0); f.timerText:SetJustifyH("LEFT") end
                 if f.sbBorder then if isTextMode then f.sbBorder:Hide() else f.sbBorder:Show() end end
@@ -458,10 +616,33 @@ function CR:RenderMonitors(activeData, wmDB)
         else
             local state = data.state
             if data.isConfigPreview then state.isActive = true; state.count = state.maxVal or 2; state.durObjC = { startTime = GetTime(), duration = 5 } end
+            
+            local matchedColor = nil
+            if CR.GetDynamicBarColor then
+                local numMax = state.maxVal or 1
+                if visualConfig.mode == "stack" or data.cfg.trackType == "charge" then
+                    numMax = tonumber(data.cfg.maxStacks) or numMax
+                end
+                
+                local decodedCurr = CR.DecodeSecretValue(state.count, numMax)
+                matchedColor = CR.GetDynamicBarColor(decodedCurr, numMax, data.cfg, visualConfig.color)
+                
+                if matchedColor then
+                    if matchedColor.isGradient then
+                        visualConfig.color.r, visualConfig.color.g, visualConfig.color.b, visualConfig.color.a = 1,1,1,1
+                    else
+                        visualConfig.color.r = matchedColor.r or 1; visualConfig.color.g = matchedColor.g or 1; visualConfig.color.b = matchedColor.b or 1; visualConfig.color.a = matchedColor.a or 1 
+                    end
+                end
+            end
+
             f.state = state
             if WF.BarEngine then WF.BarEngine:UpdateState(f, state, visualConfig) end
             
-            if f.chargeBar then f.chargeBar:ClearAllPoints(); f.chargeBar:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1); f.chargeBar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1); end
+            if f.chargeBar then 
+                f.chargeBar:ClearAllPoints(); f.chargeBar:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1); f.chargeBar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1); 
+                ApplyTextureGradient(f.chargeBar, matchedColor, orient)
+            end
             if f.bg then f.bg:ClearAllPoints(); f.bg:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1); f.bg:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1); end
             if f.sbBorder then if isTextMode then f.sbBorder:Hide() else f.sbBorder:Show() end end
             if f.lunarSubFrame then f.lunarSubFrame:Hide() end; if f.eclipseDivider then f.eclipseDivider:Hide() end
@@ -505,40 +686,22 @@ function CR:RepositionMonitors()
                 CR:CreateAnchor(anchorName, "WishFlex: [独立/文本] " .. nameStr, 80, f.calcHeight or 20)
             end
             
-            local mover = _G[anchorName.."Mover"] or _G[anchorName]
+local mover = _G[anchorName.."Mover"] or _G[anchorName]
             if mover then
                 mover._isDeletedMonitor = false
-                mover:EnableMouse(true)
-                mover:SetAlpha(1)
+                if mover.textOverlayFrame then mover.textOverlayFrame:Hide() end
                 
-                if f.cfg.displayMode == "text" then
-                    if not mover.textOverlayFrame then
-                        mover.textOverlayFrame = CreateFrame("Frame", nil, mover, "BackdropTemplate")
-                        mover.textOverlayFrame:SetFrameStrata("HIGH"); mover.textOverlayFrame:SetAllPoints(mover)
-                        mover.textOverlayFrame:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1}); mover.textOverlayFrame:SetBackdropColor(0, 0.5, 1, 0.3); mover.textOverlayFrame:SetBackdropBorderColor(0, 1, 0, 1) 
-                        mover.textOverlayFrame.txt = mover.textOverlayFrame:CreateFontString(nil, "OVERLAY"); mover.textOverlayFrame.txt:SetPoint("CENTER", mover.textOverlayFrame, "CENTER", 0, 0)
-                    end
-                    mover:SetSize(120, 40)
-                    local dbCR = CR.GetDB()
-                    local fontName = (f.visualConfig and f.visualConfig.font) or dbCR.font or "Expressway"
-                    local fontPath = LSM:Fetch("font", fontName) or STANDARD_TEXT_FONT
-                    local fontSize = (f.visualConfig and f.visualConfig.fontSize) or 16
-                    mover.textOverlayFrame.txt:SetFont(fontPath, fontSize, (f.visualConfig and f.visualConfig.outline) or "OUTLINE")
-                    local textVal = (f.cfg.mode == "stack" or f.cfg.trackType == "charge") and "3" or "12s"; mover.textOverlayFrame.txt:SetText(textVal)
-                    local tc = (f.visualConfig and f.visualConfig.color) or DEF_TEXT_COLOR; mover.textOverlayFrame.txt:SetTextColor(tc.r, tc.g, tc.b)
-                    
-                    if isConfigOpen then
-                        mover.textOverlayFrame:Show()
-                        if mover.bg then mover.bg:SetAlpha(0) end; if mover.title then mover.title:Hide() end 
-                        mover:Show()
-                    else mover.textOverlayFrame:Hide() end
-                else
-                    if mover.textOverlayFrame then mover.textOverlayFrame:Hide() end
-                    if isConfigOpen then
-                        if mover.bg then mover.bg:SetAlpha(0.4) end; if mover.title then mover.title:Show() end
-                        mover:Show()
+                mover:EnableMouse(false)
+                mover:SetAlpha(0)
+                if mover.SetBackdrop then pcall(mover.SetBackdrop, mover, nil) end
+                for i=1, mover:GetNumRegions() do
+                    local reg = select(i, mover:GetRegions())
+                    if reg:IsObjectType("FontString") or reg:IsObjectType("Texture") then
+                        reg:SetAlpha(0); reg:Hide()
                     end
                 end
+                
+                if isConfigOpen then mover:Show() else mover:Hide() end
             end
             f:ClearAllPoints(); f:SetPoint("CENTER", mover, "CENTER", 0, 0)
             if f.cfg.displayMode ~= "text" then f:SetSize(f.calcWidth, f.calcHeight) else f:SetSize(math_max(f.calcWidth or 80, 80), math_max(f.calcHeight or 40, 40)) end
@@ -555,10 +718,16 @@ function CR:RepositionMonitors()
                 local cfg = (wmDB.skills and wmDB.skills[spellIDStr]) or (wmDB.buffs and wmDB.buffs[spellIDStr])
                 local mover = _G[anchorName.."Mover"] or _G[anchorName]
                 
-                if mover then
+if mover then
                     if cfg and (cfg.independent or cfg.displayMode == "text") then
                         mover._isDeletedMonitor = false
-                        if isConfigOpen then mover:EnableMouse(true); mover:SetAlpha(1); mover:Show() else mover:Hide(); mover:SetAlpha(0); mover:EnableMouse(false) end
+                        mover:EnableMouse(false)
+                        mover:SetAlpha(0)
+                        for i=1, mover:GetNumRegions() do
+                            local reg = select(i, mover:GetRegions())
+                            if reg:IsObjectType("FontString") or reg:IsObjectType("Texture") then reg:SetAlpha(0); reg:Hide() end
+                        end
+                        if isConfigOpen then mover:Show() else mover:Hide() end
                     else
                         mover._isDeletedMonitor = true; mover:Hide(); mover:SetAlpha(0); mover:EnableMouse(false)
                         if mover.textOverlayFrame then mover.textOverlayFrame:Hide() end
