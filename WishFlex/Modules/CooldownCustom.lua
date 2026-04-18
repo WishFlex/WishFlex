@@ -23,7 +23,8 @@ local DefaultConfig = {
     Defensive = { attachToPlayer = true, width = 35, height = 28, iconGap = 1, cdFontSize = 14, cdFontColor = DEFAULT_CD_COLOR, cdPosition = "CENTER", cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackPosition = "TOP", stackXOffset = 0, stackYOffset = 7, maxPerRow = 999 },
     ExtraMonitor = { attachToPlayer = true, snapToEssential = false, width = 30, height = 25, iconGap = 1, cdFontSize = 14, cdFontColor = DEFAULT_CD_COLOR, cdPosition = "CENTER", cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackPosition = "BOTTOM", stackXOffset = 0, stackYOffset = -6, maxPerRow = 999 },
     BuffBar = { showIcon = true, iconPosition = "LEFT", width = 150, height = 24, barHeight = 24, barTexture = "Blizzard", barPosition = "CENTER", iconGap = 1, growth = "DOWN", cdFontSize = 18, cdFontColor = DEFAULT_CD_COLOR, cdPosition = "CENTER", cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackPosition = "LEFT", stackXOffset = 5, stackYOffset = 0 },
-    BuffIcon = { snapToResource = true, snapToEssential = false, width = 40, height = 35, iconGap = 1, growth = "CENTER_HORIZONTAL", cdFontSize = 14, cdFontColor = DEFAULT_CD_COLOR, cdPosition = "CENTER", cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackPosition = "TOP", stackXOffset = 0, stackYOffset = 7, maxPerRow = 999 },
+    -- 【修复】：默认关闭 snapToResource，改为自由排版
+    BuffIcon = { snapToResource = false, snapToEssential = false, width = 40, height = 35, iconGap = 1, growth = "CENTER_HORIZONTAL", cdFontSize = 14, cdFontColor = DEFAULT_CD_COLOR, cdPosition = "CENTER", cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackPosition = "TOP", stackXOffset = 0, stackYOffset = 7, maxPerRow = 999 },
     ItemBuff = { snapToBuffIcon = true, attachToPlayer = false, width = 40, height = 30, iconGap = 1, cdFontSize = 14, cdFontColor = {r=0, g=1, b=0, a=1}, cdPosition = "CENTER", cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackPosition = "BOTTOMRIGHT", stackXOffset = 0, stackYOffset = 0, maxPerRow = 999 }
 }
 
@@ -44,7 +45,12 @@ local function MigrateOldSettings(db)
         if db.Defensive.attachY then db.Defensive.offsetY = db.Defensive.attachY; db.Defensive.attachY = nil end
         db.Defensive.offsetX = nil; db.Defensive.offsetY = nil
     end
-    if db.BuffIcon then db.BuffIcon.offsetX = nil; db.BuffIcon.offsetY = nil end
+    if db.BuffIcon then 
+        db.BuffIcon.offsetX = nil; 
+        db.BuffIcon.offsetY = nil 
+        -- 【强制清洗旧存档】：强行干掉旧配置中的锁定，瞬间解放微调箭头和拖拽排版
+        db.BuffIcon.snapToResource = false 
+    end
     if db.BuffBar then db.BuffBar.offsetX = nil; db.BuffBar.offsetY = nil end
     if db.ItemBuff and db.ItemBuff.snapToBuffIcon == nil then db.ItemBuff.snapToBuffIcon = true end
 end
@@ -321,7 +327,6 @@ local function GetLayoutStateHash()
                     local sid = info and (info.overrideSpellID or info.spellID)
                     local sidNum = tonumber(sid) or 0
                     
-                    -- 【修复点1】：彻底移除了 hasTex 的哈希判定条件
                     if sidNum > 0 then
                         local idx = tonumber(f.layoutIndex) or 0
                         local hidden = f._wishFlexHidden and 1 or 0
@@ -379,7 +384,6 @@ end
 
 local function IsSafeValue(val) return val ~= nil and (type(issecretvalue) ~= "function" or not issecretvalue(val)) end
 
--- 【修复点2】：动态防缓存API崩溃返回空值的问题
 function CDMod.GetBaseSpellFast(spellID) 
     if not IsSafeValue(spellID) then return nil end
     if BaseSpellCache[spellID] == nil then 
@@ -839,7 +843,6 @@ function CDMod:ForceBuffsLayout()
                 local info = f.cooldownInfo or (f.GetCooldownInfo and f:GetCooldownInfo())
                 local sid = CDMod.ResolveActualSpellID(info, true)
                 
-                -- 【修复点3】：剥离了 hasTex，只通过 sid 判断，拯救登录隐身bug
                 if not sid then CDMod.PhysicalHideFrame(f) else
                     local tCat = defCat; 
                     local dbO = db.spellOverrides; 
@@ -959,7 +962,6 @@ function CDMod:UpdateAllLayouts()
                 local info = f.cooldownInfo or (f.GetCooldownInfo and f:GetCooldownInfo())
                 local sid = CDMod.ResolveActualSpellID(info, false)
                 
-                -- 【修复点4】：剥离了 hasTex，只通过 sid 判断，拯救登录隐身bug
                 if not sid then CDMod.PhysicalHideFrame(f) else
                     local tCat = defCat; 
                     local dbO = db.spellOverrides; 
@@ -1144,7 +1146,6 @@ local function InitCooldownCustom()
         CDMod:MarkLayoutDirty(true)
     end)
     
-    -- 【修复点5】：追加登录缓冲事件和术士/猎人专属召唤事件，彻底解决图标不显示的假死Bug
     WF:RegisterEvent("PLAYER_ENTERING_WORLD", function()
         if WF.db.cooldownCustom.enable == false then return end 
         C_Timer.After(1.0, function() CDMod:MarkLayoutDirty(true) end)

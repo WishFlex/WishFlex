@@ -21,6 +21,7 @@ CR.currentSpecID = 0
 CR._minColorObj = CreateColor and CreateColor(1,1,1,1) or nil
 CR._maxColorObj = CreateColor and CreateColor(1,1,1,1) or nil
 CR._defaultColorObj = CreateColor and CreateColor(1,1,1,1) or nil
+CR._tempWColor = {r=1, g=1, b=1, a=1} -- 【极限优化 2】：提供静态的白色表复用，代替 {} 动态分配
 local DEF_W_COL = {r=1, g=1, b=1, a=1}
 
 local DEFAULT_COLOR = {r=1, g=1, b=1}
@@ -110,7 +111,6 @@ local function GetPlayerAuraSafe(spellID)
     return CR._auraValues[spellID] == false and nil or CR._auraValues[spellID]
 end
 
--- 【极限优化】：将配置字典转换为扁平化连续数组，杜绝 OnUpdate 里的 pairs 遍历开销
 CR._activePresetsArray = {}
 function CR.RebuildPresetsCache()
     wipe(CR._activePresetsArray)
@@ -127,7 +127,6 @@ end
 function CR.GetClassResourceData()
     local spec = CR.currentSpecID
     
-    -- 【性能飞跃】：使用极速的数字索引数组，不再高频销毁和创建迭代器
     for i = 1, #CR._activePresetsArray do
         local item = CR._activePresetsArray[i]
         local aura = GetPlayerAuraSafe(item.id)
@@ -934,7 +933,8 @@ function CR:DynamicTick()
             if matchedColor then 
                 if matchedColor.isGradient then
                     applyGrad = true
-                    cColor = {r=1, g=1, b=1, a=1}
+                    if not CR._tempWColor then CR._tempWColor = {r=1, g=1, b=1, a=1} end
+                    cColor = CR._tempWColor
                 else
                     cColor = matchedColor 
                 end

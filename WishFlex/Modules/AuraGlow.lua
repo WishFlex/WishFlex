@@ -27,19 +27,17 @@ local SKILL_VIEWERS = { "EssentialCooldownViewer", "UtilityCooldownViewer" }
 local BUFF_VIEWERS = { "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
 local AURA_FILTERS = { "HELPFUL", "HARMFUL" }
 
+-- 【极限防抖修复】：移除高频 OnUpdate，改用精准的时间轴物理防抖，彻底阻断 4800次/秒 的 API 内存核弹轰炸
 local updatePending = false
-local UpdateDispatcher = CreateFrame("Frame")
-UpdateDispatcher:Hide()
-UpdateDispatcher:SetScript("OnUpdate", function(self)
-    self:Hide()
+local function DoUpdateGlows()
     updatePending = false
     AuraGlowMod:UpdateGlows()
-end)
+end
 
 local function RequestUpdateGlows() 
     if updatePending then return end
     updatePending = true
-    UpdateDispatcher:Show() 
+    C_Timer.After(0.25, DoUpdateGlows) 
 end
 AuraGlowMod.RequestUpdateGlows = RequestUpdateGlows
 
@@ -48,7 +46,7 @@ local lastTick = 0
 AuraTrackerTicker:SetScript("OnUpdate", function(self, elapsed)
     if not AuraGlowMod.manualTrackers or not next(AuraGlowMod.manualTrackers) then return end
     lastTick = lastTick + elapsed
-    if lastTick >= 0.1 then
+    if lastTick >= 0.25 then -- 同步降频
         lastTick = 0
         local now = GetTime()
         local expired = false
@@ -226,7 +224,6 @@ local function ApplyCustomGlowToFrame(frame, glowKey)
     local w, h = target:GetWidth(), target:GetHeight()
     local rectX, rectY, rectW, rectH = target:GetRect()
     
-    -- 【核心修复：防小光点】使用 GetRect 抓取屏幕真实的物理渲染尺寸。
     if not rectW or not rectH or rectW < 10 or rectH < 10 then
         frame._agRetries = (frame._agRetries or 0) + 1
         if frame._agRetries < 30 then 
@@ -366,7 +363,6 @@ local function SyncTextAndVisuals(frame, overrideCfg)
     end
 end
 
--- 【核心修复：遮罩图标根据底图透明度隐藏】
 local function OverlayOnUpdate(self) 
     if self.sourceFrame then
         local targetAlpha = self.sourceFrame.SmartHideTargetAlpha or self.sourceFrame:GetEffectiveAlpha() or 1
@@ -382,7 +378,6 @@ local function OverlayOnUpdate(self)
     end 
 end
 
--- 【核心修复：独立图标兼容脱战隐藏设置】
 local function IndependentOnUpdate(self) 
     local targetAlpha = 1
     if WF.SmartFader then
