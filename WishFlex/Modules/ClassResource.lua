@@ -17,7 +17,6 @@ local hasHealerSpec = (playerClass == "PALADIN" or playerClass == "PRIEST" or pl
 CR.playerClass = playerClass
 CR.hasHealerSpec = hasHealerSpec
 
--- 【极限优化 1】：全局复用对象，彻底消灭 OnUpdate 里的 50次/秒 的 CreateColor 内存泄漏风暴
 CR.currentSpecID = 0
 CR._minColorObj = CreateColor and CreateColor(1,1,1,1) or nil
 CR._maxColorObj = CreateColor and CreateColor(1,1,1,1) or nil
@@ -87,7 +86,6 @@ function CR.GetSafeMana()
     return curr, maxP, CR._manaCache.c, CR._manaCache.m
 end
 
--- 【极限优化 2】：加入脏标记缓存，阻止高频 OnUpdate 时疯狂向 API 索要新 Table
 CR._auraCacheDirty = true
 CR._auraValues = {}
 local function GetPlayerAuraSafe(spellID)
@@ -112,22 +110,34 @@ local function GetPlayerAuraSafe(spellID)
     return CR._auraValues[spellID] == false and nil or CR._auraValues[spellID]
 end
 
-function CR.GetClassResourceData()
-    local spec = CR.currentSpecID
+-- 【极限优化】：将配置字典转换为扁平化连续数组，杜绝 OnUpdate 里的 pairs 遍历开销
+CR._activePresetsArray = {}
+function CR.RebuildPresetsCache()
+    wipe(CR._activePresetsArray)
     if WF.db and WF.db.classResource and WF.db.classResource.presets then
         for pidStr, pData in pairs(WF.db.classResource.presets) do
             local spellID = tonumber(pidStr)
             if spellID then
-                local aura = GetPlayerAuraSafe(spellID)
-                if pData.isDuration then
-                    local remain = 0; local maxD = tonumber(pData.maxVal) or 30
-                    if aura and aura.expirationTime and aura.expirationTime > 0 then remain = aura.expirationTime - GetTime() end
-                    if remain < 0 then remain = 0 end; return remain, maxD, PLAYER_CLASS_COLOR, 0
-                else
-                    local apps = aura and aura.applications or 0; local maxA = tonumber(pData.maxVal) or 5
-                    return apps, maxA, PLAYER_CLASS_COLOR, 0
-                end
+                table.insert(CR._activePresetsArray, { id = spellID, data = pData })
             end
+        end
+    end
+end
+
+function CR.GetClassResourceData()
+    local spec = CR.currentSpecID
+    
+    -- 【性能飞跃】：使用极速的数字索引数组，不再高频销毁和创建迭代器
+    for i = 1, #CR._activePresetsArray do
+        local item = CR._activePresetsArray[i]
+        local aura = GetPlayerAuraSafe(item.id)
+        if item.data.isDuration then
+            local remain = 0; local maxD = tonumber(item.data.maxVal) or 30
+            if aura and aura.expirationTime and aura.expirationTime > 0 then remain = aura.expirationTime - GetTime() end
+            if remain < 0 then remain = 0 end; return remain, maxD, PLAYER_CLASS_COLOR, 0
+        else
+            local apps = aura and aura.applications or 0; local maxA = tonumber(item.data.maxVal) or 5
+            return apps, maxA, PLAYER_CLASS_COLOR, 0
         end
     end
 
@@ -346,6 +356,7 @@ function CR.GetDB()
     WF.db.classResource.sortOrder = uniqueSort
     
     dbInitialized = true; cachedDB = WF.db.classResource
+    CR.RebuildPresetsCache() 
     return cachedDB
 end
 
@@ -833,13 +844,6 @@ function CR:DynamicTick()
         self:ApplyBarGraphics(self.whirlingBar, specCfg.whirling, db)
     end
 
-    if self.vigorBar and self.vigorBar.text then self.vigorBar.text:Hide() end
-    if self.vigorBar and self.vigorBar.timerText then self.vigorBar.timerText:Hide() end
-    if self.whirlingBar and self.whirlingBar.text then self.whirlingBar.text:Hide() end
-    if self.whirlingBar and self.whirlingBar.timerText then self.whirlingBar.timerText:Hide() end
-    if self.classBar and self.classBar.text then self.classBar.text:Hide() end
-    if self.classBar and self.classBar.timerText then self.classBar.timerText:Hide() end
-
     if (self.showVigor or (isConfigOpen and CR.Sandbox and CR.Sandbox.popupTarget == "vigor")) and specCfg.vigor then
         local rawCurr, rawMax = CR.GetVigorSmooth()
         if not CR.IsSecret(rawMax) and rawMax <= 0 then rawMax = 6 end
@@ -946,7 +950,6 @@ function CR:DynamicTick()
             tex:SetVertTile(false)
         end
         
-        -- 【极限优化 1 挂载点】：全局复用对象，彻底消灭内存垃圾！
         if applyGrad and tex then
             local matchedColor = CR.GetDynamicBarColor(CR.DecodeSecretValue(rawCurr, rawMax), rawMax, specCfg.class, cColor)
             local sC = matchedColor.startC or DEF_W_COL
@@ -1038,7 +1041,6 @@ local function InitClassResource()
         WF:RegisterEvent("SPELL_UPDATE_COOLDOWN", function() CR:UpdateFlightCaches(); CR:CheckVigorState(); CR:WakeUp() end)
         WF:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED", function() CR:TriggerVigorCheck(); CR:WakeUp() end)
         
-        -- 【极限优化 2 挂载点】：监听玩家光环，只在真正变动时失效缓存，杜绝底层海量扫描
         WF:RegisterEvent("UNIT_AURA", function(e, unit) 
             if unit == "player" then 
                 CR._auraCacheDirty = true

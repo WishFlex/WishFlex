@@ -9,6 +9,15 @@ local ActiveKeys = {}
 local DEFAULT_BG_COLOR = {r=0, g=0, b=0, a=0.5}
 local DEFAULT_BAR_COLOR = {r=0, g=0.8, b=1, a=1}
 
+-- 【极限优化】：提取所有高频调用的安全执行函数为静态指针，彻底消除 pcall 匿名闭包的内存碎片
+local function SafeIsSecretValue(val) return type(val) == "number" and type(issecretvalue) == "function" and issecretvalue(val) end
+local function SafeSetCooldownObj(cd, obj) cd:SetCooldownFromDurationObject(obj) end
+local function SafeClearTimer(bar) bar:ClearTimerDuration() end
+local function SafeSetTimer(bar, obj, dir) bar:SetTimerDuration(obj, 0, dir) end
+local function SafeSetToTarget(bar) bar:SetToTargetValue() end
+local function SafeSetText(fontStr, txt) fontStr:SetText(txt) end
+local function SafeSetMinMax(bar, min, max) bar:SetMinMaxValues(min, max) end
+
 local function GetOnePixelSize()
     local screenHeight = select(2, GetPhysicalScreenSize())
     if not screenHeight or screenHeight == 0 then return 1 end
@@ -84,7 +93,7 @@ function WF.BarEngine:AcquireFrame(key)
         f.cd.ignoreBackdrop = true; if f.cd.SetBackdrop then f.cd:SetBackdrop(nil) end
         f.cd:SetDrawSwipe(false); f.cd:SetDrawEdge(false); f.cd:SetDrawBling(false)
         
-        pcall(function() f.cd:SetSwipeColor(0, 0, 0, 0) end)
+        pcall(f.cd.SetSwipeColor, f.cd, 0, 0, 0, 0)
         if not f.cd._WFHooked then
             hooksecurefunc(f.cd, "SetDrawSwipe", function(self, draw) 
                 if draw and not self._isMutingSwipe then 
@@ -116,11 +125,11 @@ function WF.BarEngine:AcquireFrame(key)
 end
 
 function WF.BarEngine:CleanupUnused()
-    for k, f in pairs(FramePool) do if not ActiveKeys[k] then f:Hide(); pcall(function() f.cd:Clear() end) end end
+    for k, f in pairs(FramePool) do if not ActiveKeys[k] then f:Hide(); pcall(f.cd.Clear, f.cd) end end
 end
 
 function WF.BarEngine:ReleaseAll()
-    for _, f in pairs(FramePool) do f:Hide(); pcall(function() f.cd:Clear() end) end
+    for _, f in pairs(FramePool) do f:Hide(); pcall(f.cd.Clear, f.cd) end
     wipe(ActiveKeys)
 end
 
@@ -161,9 +170,7 @@ function WF.BarEngine:ApplyStyle(f, visualConfig)
     local showStack = (visualConfig.textEnable ~= false)
     local showTimer = (visualConfig.timerEnable ~= false)
 
-    if isTextMode then
-        showStack = false
-    end
+    if isTextMode then showStack = false end
 
     if not showStack then
         f.stackText:SetText("")
@@ -214,9 +221,7 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
     local showStack = (visualConfig.textEnable ~= false)
     local showTimer = (visualConfig.timerEnable ~= false)
 
-    if isTextMode then
-        showStack = false
-    end
+    if isTextMode then showStack = false end
 
     if state.isActive then
         f:SetAlpha(1)
@@ -240,9 +245,9 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
             f.stackText:Hide()
         else
             f.stackText:SetAlpha(1)
-            local success, isSecret = pcall(function() return type(state.count) == "number" and type(issecretvalue) == "function" and issecretvalue(state.count) end)
+            local success, isSecret = pcall(SafeIsSecretValue, state.count)
             if success and isSecret then 
-                pcall(function() f.stackText:SetText(state.count) end)
+                pcall(SafeSetText, f.stackText, state.count)
                 f.stackText:Show() 
             else
                 local cnt = tonumber(state.count) or 0
@@ -257,17 +262,17 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
         if visualConfig.useStatusBar then
             if state.trackType == "buff" and visualConfig.mode == "stack" then
                 f.chargeBar:Show(); f.refreshCharge:Hide()
-                if f.chargeBar.ClearTimerDuration then pcall(function() f.chargeBar:ClearTimerDuration() end) end
+                if f.chargeBar.ClearTimerDuration then pcall(SafeClearTimer, f.chargeBar) end
                 f.chargeBar:SetMinMaxValues(0, state.maxVal); f.chargeBar:SetValue(state.count or 0)
                 f.cd:ClearAllPoints(); f.cd:SetAllPoints(f.chargeBar) 
                 if f.timerText and showTimer then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "RIGHT") end
             elseif state.trackType == "charge" then
                 f.chargeBar:Show()
-                if f.chargeBar.ClearTimerDuration then pcall(function() f.chargeBar:ClearTimerDuration() end) end
+                if f.chargeBar.ClearTimerDuration then pcall(SafeClearTimer, f.chargeBar) end
                 f.chargeBar:SetMinMaxValues(0, state.maxVal); f.chargeBar:SetValue(state.count or 0)
 
                 local needsRecharge = false
-                local sSuccess, isSecret = pcall(function() return type(state.count) == "number" and issecretvalue(state.count) end)
+                local sSuccess, isSecret = pcall(SafeIsSecretValue, state.count)
                 if sSuccess and isSecret then needsRecharge = true else local cnt = tonumber(state.count) or 0; if cnt < state.maxVal then needsRecharge = true end end
 
                 if needsRecharge and state.durObjC then
@@ -279,34 +284,36 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
                     if tex then if visualConfig.reverseFill then f.refreshCharge:SetPoint("RIGHT", tex, "LEFT", 0, 0) else f.refreshCharge:SetPoint("LEFT", tex, "RIGHT", 0, 0) end
                         f.refreshCharge:SetPoint("TOP", f.chargeBar, "TOP", 0, 0); f.refreshCharge:SetPoint("BOTTOM", f.chargeBar, "BOTTOM", 0, 0); f.refreshCharge:SetWidth(segW)
                     end
-                    pcall(function() f.refreshCharge:SetMinMaxValues(0, 1) end)
+                    pcall(SafeSetMinMax, f.refreshCharge, 0, 1)
                     local dir = Enum.StatusBarTimerDirection and Enum.StatusBarTimerDirection.ElapsedTime or 0
-                    if f.refreshCharge.SetTimerDuration then pcall(function() f.refreshCharge:SetTimerDuration(state.durObjC, 0, dir) end) end
+                    if f.refreshCharge.SetTimerDuration then pcall(SafeSetTimer, f.refreshCharge, state.durObjC, dir) end
                     f.refreshCharge:Show(); f.cd:ClearAllPoints(); f.cd:SetAllPoints(f.refreshCharge)
                     if f.timerText and showTimer then ApplyTextAnchor(f.timerText, "CENTER", f.refreshCharge, visualConfig.timerXOffset, visualConfig.timerYOffset, "CENTER") end
                 else
-                    f.refreshCharge:Hide(); if f.refreshCharge.ClearTimerDuration then pcall(function() f.refreshCharge:ClearTimerDuration() end) end
+                    f.refreshCharge:Hide(); if f.refreshCharge.ClearTimerDuration then pcall(SafeClearTimer, f.refreshCharge) end
                     f.cd:ClearAllPoints(); f.cd:SetAllPoints(f.chargeBar)
                     if f.timerText and showTimer then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "RIGHT") end
                 end
             else 
-                f.chargeBar:Show(); f.refreshCharge:Hide(); if f.refreshCharge.ClearTimerDuration then pcall(function() f.refreshCharge:ClearTimerDuration() end) end
+                f.chargeBar:Show(); f.refreshCharge:Hide(); if f.refreshCharge.ClearTimerDuration then pcall(SafeClearTimer, f.refreshCharge) end
                 f.chargeBar:SetMinMaxValues(0, 1)
                 if state.durObjC then 
                     local dir = Enum.StatusBarTimerDirection and Enum.StatusBarTimerDirection.TimeRemaining or 1
-                    if f.chargeBar.SetTimerDuration then pcall(function() f.chargeBar:SetTimerDuration(state.durObjC, 0, dir) end) end
-                    if f.chargeBar.SetToTargetValue then pcall(function() f.chargeBar:SetToTargetValue() end) end
+                    if f.chargeBar.SetTimerDuration then pcall(SafeSetTimer, f.chargeBar, state.durObjC, dir) end
+                    if f.chargeBar.SetToTargetValue then pcall(SafeSetToTarget, f.chargeBar) end
                 else 
-                    if f.chargeBar.ClearTimerDuration then pcall(function() f.chargeBar:ClearTimerDuration() end) end; f.chargeBar:SetValue(1)
+                    if f.chargeBar.ClearTimerDuration then pcall(SafeClearTimer, f.chargeBar) end; f.chargeBar:SetValue(1)
                 end 
                 f.cd:ClearAllPoints(); f.cd:SetAllPoints(f.chargeBar)
                 if f.timerText and showTimer then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "RIGHT") end
             end
         end
         if state.durObjC then 
-            if f.cd.SetCooldownFromDurationObject and type(state.durObjC) == "userdata" then pcall(function() f.cd:SetCooldownFromDurationObject(state.durObjC) end) else 
+            if f.cd.SetCooldownFromDurationObject and type(state.durObjC) == "userdata" then 
+                pcall(SafeSetCooldownObj, f.cd, state.durObjC)
+            else 
                 local st, dur; if type(state.durObjC) == "userdata" and type(state.durObjC.GetCooldownStartTime) == "function" then st = state.durObjC:GetCooldownStartTime(); dur = state.durObjC:GetCooldownDuration() else st = state.durObjC.startTime; dur = state.durObjC.duration end
-                if st and dur and (IsSecret(dur) or (tonumber(dur) and tonumber(dur) > 0)) then f.cd:SetCooldown(st, dur) else f.cd:Clear() end 
+                if st and dur and (SafeIsSecretValue(dur) or (tonumber(dur) and tonumber(dur) > 0)) then f.cd:SetCooldown(st, dur) else f.cd:Clear() end 
             end 
         else f.cd:Clear() end
     else
@@ -316,8 +323,8 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
         
         if visualConfig.useStatusBar then
             f.chargeBar:Show(); f.refreshCharge:Hide()
-            if f.chargeBar.ClearTimerDuration then pcall(function() f.chargeBar:ClearTimerDuration() end) end
-            if f.refreshCharge.ClearTimerDuration then pcall(function() f.refreshCharge:ClearTimerDuration() end) end
+            if f.chargeBar.ClearTimerDuration then pcall(SafeClearTimer, f.chargeBar) end
+            if f.refreshCharge.ClearTimerDuration then pcall(SafeClearTimer, f.refreshCharge) end
             f.chargeBar:SetMinMaxValues(0, f.maxVal or 1)
             
             if isConfigOpen then
