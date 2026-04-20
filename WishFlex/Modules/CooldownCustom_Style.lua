@@ -163,7 +163,7 @@ local function GetHotkey(spellID, itemID)
             for cachedID, key in pairs(spellToKeyCache) do
                 local cInfo = C_Spell.GetSpellInfo(cachedID)
                 if cInfo and cInfo.name and string.lower(cInfo.name) == lowerName then
-                    spellToKeyCache[spellID] = key -- 永久缓存，下一次极速响应
+                    spellToKeyCache[spellID] = key 
                     return key
                 end
             end
@@ -191,8 +191,7 @@ function CDMod.ApplyElvUISkin(targetObj, parentFrame, bdSize, bdColor)
             local t = bd:CreateTexture(nil, "BORDER", nil, 1); t:SetColorTexture(0, 0, 0, 1)
             t:SetPoint(p1, bd, p1, x, y); t:SetPoint(p2, bd, p2, x, y)
             if w then t:SetWidth(defaultM) end; if h then t:SetHeight(defaultM) end
-            if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false) end
-            if t.SetTexelSnappingBias then t:SetTexelSnappingBias(0) end
+            -- 【修复】：删除这两行强制破坏抗锯齿的底层接管，让引擎自然平滑吸附
             return t
         end
         bd.top = DrawEdge("TOPLEFT", "TOPRIGHT", 0, 0, nil, 1); bd.bottom = DrawEdge("BOTTOMLEFT", "BOTTOMRIGHT", 0, 0, nil, 1)

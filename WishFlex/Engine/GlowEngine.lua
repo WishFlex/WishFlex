@@ -5,7 +5,6 @@ WF.GlowEngine = {}
 
 local GlowHosts = {}
 
--- 【极限优化1】：全局复用发光参数表，杜绝高频刷新时产生海量 Table 内存垃圾
 local cachedColor = {1, 1, 1, 1}
 local cachedProcOpts = {color = nil, duration = 1, xOffset = 0, yOffset = 0, key = nil, frameLevel = 0}
 
@@ -19,6 +18,7 @@ function WF.GlowEngine:EnsureHost(frame)
 
     local host = GlowHosts[frame]
     if not host then
+        -- 【同源绑定】
         host = CreateFrame("Frame", nil, target)
         host:SetClampedToScreen(false)
         GlowHosts[frame] = host
@@ -26,8 +26,10 @@ function WF.GlowEngine:EnsureHost(frame)
 
     if host:GetParent() ~= target then host:SetParent(target) end
     host:ClearAllPoints()
-    host:SetPoint("TOPLEFT", target, "TOPLEFT", -0.05, -0.05)
-    host:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", 0, -0.05)
+    host:SetPoint("TOPLEFT", target, "TOPLEFT", 0, 0)
+    host:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", 0, 0)
+    
+    if target:GetFrameStrata() then host:SetFrameStrata(target:GetFrameStrata()) end
     host:SetFrameLevel((target:GetFrameLevel() or 1) + 5)
     if not frame._wfGlowEngineHooked then
         frame:HookScript("OnHide", function()

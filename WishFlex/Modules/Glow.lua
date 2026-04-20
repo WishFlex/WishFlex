@@ -28,7 +28,8 @@ local function GetDB()
     return db
 end
 
-local function EnsureGlowHost(frame)
+-- 接收明确的 w, h 尺寸，掐断 0 尺寸的源头
+local function EnsureGlowHost(frame, targetW, targetH)
     local target = frame.wishBd or frame
     if frame.Icon and type(frame.Icon) == "table" then
         if frame.Icon.wishBd then target = frame.Icon.wishBd
@@ -37,18 +38,25 @@ local function EnsureGlowHost(frame)
 
     local host = frame.cdmGlowHost
     if not host then
-        host = CreateFrame("Frame", nil, target)
+        host = CreateFrame("Frame", nil, target) 
         host:SetClampedToScreen(false)
         frame.cdmGlowHost = host
     end
 
     if host:GetParent() ~= target then host:SetParent(target) end
+    
     host:ClearAllPoints()
+    host:SetPoint("TOPLEFT", target, "TOPLEFT", 0, 0)
     
-    local tw, th = target:GetSize()
-    host:SetSize(tw, th)
-    host:SetPoint("CENTER", target, "CENTER", 0, 0)
+    -- 【终极修复】：主动硬塞精准浮点尺寸（拒绝 math.floor，拒绝隐式 0 尺寸）
+    if targetW and targetH and targetW > 0 and targetH > 0 then
+        host:SetSize(targetW, targetH)
+    else
+        local tw, th = target:GetSize()
+        host:SetSize(math.max(tw, 1), math.max(th, 1))
+    end
     
+    if target:GetFrameStrata() then host:SetFrameStrata(target:GetFrameStrata()) end
     host:SetFrameLevel((target:GetFrameLevel() or 1) + 5)
     return host, target
 end
@@ -61,7 +69,6 @@ function Glow:Show(frame)
         if frame.Icon.wishBd then target = frame.Icon.wishBd
         elseif frame.Icon.Icon and frame.Icon.Icon.wishBd then target = frame.Icon.Icon.wishBd end
     end
-
 
     if target.IsRectValid and not target:IsRectValid() then
         target:GetWidth() 
@@ -76,7 +83,6 @@ function Glow:Show(frame)
         frame:HookScript("OnHide", function(self) WF.GlowAPI:Hide(self) end)
         frame._wishGlowHideHooked = true
     end
-
 
     if not frame._wishGlowSizeHooked then
         target:HookScript("OnSizeChanged", function()
@@ -110,7 +116,7 @@ function Glow:Show(frame)
         colorArr[1] = c.r or 1; colorArr[2] = c.g or 1; colorArr[3] = c.b or 1; colorArr[4] = c.a or 1
     end
     
-    local host = EnsureGlowHost(frame)
+    local host = EnsureGlowHost(frame, w, h)
     
     if db.glowType == "pixel" then
         local len = db.pixelLength

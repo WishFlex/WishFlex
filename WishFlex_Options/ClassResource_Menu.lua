@@ -73,9 +73,9 @@ local function BuildGradientOpts(cfgDB, handleCallback)
     if type(cfgDB.gradientStart) ~= "table" then cfgDB.gradientStart = {r=0, g=1, b=0, a=1} end
     if type(cfgDB.gradientEnd) ~= "table" then cfgDB.gradientEnd = {r=1, g=0, b=0, a=1} end
     local childs = {
-        { type = "toggle", key = "enableGradient", db = cfgDB, text = L["Enable Gradient Color"] or "开启层数渐变色 (优先级最高)", callback = handleCallback },
-        { type = "color", key = "gradientStart", db = cfgDB, text = L["Start Color (1 Stack)"] or "起始颜色 (1层)", callback = handleCallback },
-        { type = "color", key = "gradientEnd", db = cfgDB, text = L["End Color (Max Stacks)"] or "结束颜色 (满层)", callback = handleCallback },
+        { type = "toggle", key = "enableGradient", db = cfgDB, text = L["Enable Gradient Color"] or "开启时间/层数渐变色 (优先级最高)", callback = handleCallback },
+        { type = "color", key = "gradientStart", db = cfgDB, text = L["Start Color (1 Stack)"] or "起始颜色 (1层/开始)", callback = handleCallback },
+        { type = "color", key = "gradientEnd", db = cfgDB, text = L["End Color (Max Stacks)"] or "结束颜色 (满层/结束)", callback = handleCallback },
     }
     return { type = "group", key = "p_gradient", text = L["Gradient Color Settings"] or "渐变颜色设置", childs = childs }
 end
@@ -94,7 +94,7 @@ local function BuildThresholdOpts(cfgDB, handleCallback, includePowerTypeDropdow
     table.insert(childs, { type = "toggle", key = "enable", db = cfgDB.colorThresholds[cLineDB.slot], text = L["Enable This Stage"] or "启用此阶段", callback = handleCallback })
     table.insert(childs, { type = "slider", key = "value", db = cfgDB.colorThresholds[cLineDB.slot], text = L["Trigger Value"] or "触发层数/数值", min=1, max=300, step=1, callback = handleCallback })
     table.insert(childs, { type = "color", key = "color", db = cfgDB.colorThresholds[cLineDB.slot], text = L["Threshold Color"] or "阶段突变颜色", callback = handleCallback })
-    return { type = "group", key = "p_threshold", text = L["Stage Color Settings"] or "层数突变颜色设置", childs = childs }
+    return { type = "group", key = "p_threshold", text = L["Stage Color Settings"] or "层数/数值突变设置", childs = childs }
 end
 
 local function CreateSandboxContextMenu()
@@ -304,6 +304,10 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
                 table.insert(menuItems, { text = L["Gradient Color Settings"] or "层数渐变颜色设置", isAction = true, action = function() CR.Sandbox.popupSubMenu = "gradient"; WF.UI:RefreshCurrentPanel() end })
                 table.insert(menuItems, { text = L["Stack Color Settings"] or "多阶段突变颜色设置", isAction = true, action = function() CR.Sandbox.popupSubMenu = "threshold"; WF.UI:RefreshCurrentPanel() end })
             else
+                -- 【核心修复】：为能量条和其它条添加“数值颜色突变”入口
+                if target == "power" or target == "mana" then
+                    table.insert(menuItems, { text = L["Value Color Settings"] or "数值突变颜色设置", isAction = true, action = function() CR.Sandbox.popupSubMenu = "threshold"; WF.UI:RefreshCurrentPanel() end })
+                end
                 table.insert(menuItems, { text = L["Threshold Lines"] or "能量刻度线设置", isAction = true, action = function() CR.Sandbox.popupSubMenu = "lines"; WF.UI:RefreshCurrentPanel() end })
             end
 
@@ -402,7 +406,6 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
         local sortedKeys = {}; for k in pairs(sourceCache) do table.insert(sortedKeys, k) end; table.sort(sortedKeys, function(a, b) return tonumber(a) < tonumber(b) end)
         if #sortedKeys > 0 and (not state.spell or not sourceCache[state.spell]) then state.spell = sortedKeys[1] end
 
-        -- 【互斥核心逻辑】：确保纯文本和层数永远不会同时存在
         if state.displayMode == "text" then
             if state.cat == "skill" and state.type == "charge" then state.type = "cooldown" end
             if state.cat == "buff" and state.type == "stack" then state.type = "time" end
@@ -415,7 +418,6 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
             { type = "dropdown", key = "cat", db = state, text = L["Monitor Type"] or "监控类型", options = { {text=L["Aura/Buff"] or "光环/增益", value="buff"}, {text=L["Spell/Skill"] or "法术/技能", value="skill"} }, callback = function() state.spell = nil; state.type = (state.cat=="skill") and "cooldown" or "time"; handleCallback() end }
         }
         
-        -- 显示模式动态选项（如果选了层数，隐藏纯文本）
         local dispOpts = { {text=L["Status Bar"] or "进度条", value="bar"} }
         if state.type ~= "stack" and state.type ~= "charge" then
             table.insert(dispOpts, {text=L["Pure Text"] or "纯文本", value="text"})
@@ -428,7 +430,6 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
             handleCallback()
         end})
         
-        -- 机制动态选项（如果选了纯文本，隐藏层数）
         if state.cat == "skill" then
             local typeOpts = { {text=L["Single Cooldown"] or "单一冷却", value="cooldown"} }
             if state.displayMode ~= "text" then
@@ -554,8 +555,10 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
                 if cat == "buff" and cfg.mode == "stack" then hasStacks = true end
                 if cat == "skill" and cfg.trackType == "charge" then hasStacks = true end
 
+                -- 【核心修复】：不论是否是层数，全部放出“渐变颜色设置”选项，时间流逝也会有渐变效果！
+                table.insert(menuItems, { text = L["Gradient Color Settings"] or "渐变颜色设置", isAction = true, action = function() CR.Sandbox.popupSubMenu = "gradient"; WF.UI:RefreshCurrentPanel() end })
+
                 if hasStacks then
-                    table.insert(menuItems, { text = L["Gradient Color Settings"] or "层数渐变颜色设置", isAction = true, action = function() CR.Sandbox.popupSubMenu = "gradient"; WF.UI:RefreshCurrentPanel() end })
                     table.insert(menuItems, { text = L["Stack Color Settings"] or "多阶段突变颜色设置", isAction = true, action = function() CR.Sandbox.popupSubMenu = "threshold"; WF.UI:RefreshCurrentPanel() end })
                 else
                     table.insert(menuItems, { text = L["Threshold Lines"] or "刻度线设置", isAction = true, action = function() CR.Sandbox.popupSubMenu = "lines"; WF.UI:RefreshCurrentPanel() end })
@@ -624,20 +627,36 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
                     
                     py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, {{type="group", key="mon_b", text=L["Basic Appearance"] or "基础外观设定", childs=childs}}, handleCallback)
 
-                elseif subMenu == "text" then
-                    local childs = {
-                        { type = "toggle", key = "timerEnable", db = cfg, text = L["Enable Timer Text"] or "启用计时文本", callback = handleCallback },
-                        { type = "dropdown", key = "timerAnchor", db = cfg, text = L["Timer Text Anchor"] or "锚点位置", options = {
+elseif subMenu == "text" then
+                    local childs = {}
+                    -- 检查该监控是否是层数/充能模式
+                    local isStackMode = (cfg.mode == "stack" or cfg.trackType == "charge")
+                    
+                    -- 如果是层数模式，把主文本(层数)的控制项加入菜单
+                    if isStackMode then
+                        table.insert(childs, { type = "toggle", key = "textEnable", db = cfg, text = L["Enable Main Text"] or "启用主文本(层数/数值)", callback = handleCallback })
+                        table.insert(childs, { type = "dropdown", key = "textAnchor", db = cfg, text = L["Main Text Anchor"] or "主文本锚点", options = {
                             {text=L["TOPLEFT"] or "左上",value="TOPLEFT"}, {text=L["TOP"] or "上方",value="TOP"}, {text=L["TOPRIGHT"] or "右上",value="TOPRIGHT"},
                             {text=L["LEFT"] or "靠左",value="LEFT"}, {text=L["CENTER"] or "居中",value="CENTER"}, {text=L["RIGHT"] or "靠右",value="RIGHT"},
                             {text=L["BOTTOMLEFT"] or "左下",value="BOTTOMLEFT"}, {text=L["BOTTOM"] or "下方",value="BOTTOM"}, {text=L["BOTTOMRIGHT"] or "右下",value="BOTTOMRIGHT"}
-                        }, callback = handleCallback },
-                        { type = "slider", key = "fontSize", db = cfg, text = L["Font Size"] or "字体大小", min = 1, max = 64, step = 1, callback = handleCallback },
-                        { type = "slider", key = "timerXOffset", db = cfg, text = L["X Offset"] or "X轴偏移", min=-200, max=200, step=1, callback = handleCallback },
-                        { type = "slider", key = "timerYOffset", db = cfg, text = L["Y Offset"] or "Y轴偏移", min=-100, max=100, step=1, callback = handleCallback },
-                        { type = "color", key = "textColor", db = cfg, text = L["Text Color"] or "文本颜色", callback = handleCallback },
-                    }
-                    py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, {{type="group", key="mon_t", text=L["Timer Text Layout"] or "文本排版设定", childs=childs}}, handleCallback)
+                        }, callback = handleCallback })
+                        table.insert(childs, { type = "slider", key = "xOffset", db = cfg, text = L["Main Text X Offset"] or "主文本X轴偏移", min=-200, max=200, step=1, callback = handleCallback })
+                        table.insert(childs, { type = "slider", key = "yOffset", db = cfg, text = L["Main Text Y Offset"] or "主文本Y轴偏移", min=-100, max=100, step=1, callback = handleCallback })
+                    end
+
+                    -- 原有的计时文本控制项
+                    table.insert(childs, { type = "toggle", key = "timerEnable", db = cfg, text = L["Enable Timer Text"] or "启用计时文本", callback = handleCallback })
+                    table.insert(childs, { type = "dropdown", key = "timerAnchor", db = cfg, text = L["Timer Text Anchor"] or "计时文本锚点", options = {
+                        {text=L["TOPLEFT"] or "左上",value="TOPLEFT"}, {text=L["TOP"] or "上方",value="TOP"}, {text=L["TOPRIGHT"] or "右上",value="TOPRIGHT"},
+                        {text=L["LEFT"] or "靠左",value="LEFT"}, {text=L["CENTER"] or "居中",value="CENTER"}, {text=L["RIGHT"] or "靠右",value="RIGHT"},
+                        {text=L["BOTTOMLEFT"] or "左下",value="BOTTOMLEFT"}, {text=L["BOTTOM"] or "下方",value="BOTTOM"}, {text=L["BOTTOMRIGHT"] or "右下",value="BOTTOMRIGHT"}
+                    }, callback = handleCallback })
+                    table.insert(childs, { type = "slider", key = "fontSize", db = cfg, text = L["Font Size"] or "字体大小", min = 1, max = 64, step = 1, callback = handleCallback })
+                    table.insert(childs, { type = "slider", key = "timerXOffset", db = cfg, text = L["Timer Text X Offset"] or "计时文本X轴偏移", min=-200, max=200, step=1, callback = handleCallback })
+                    table.insert(childs, { type = "slider", key = "timerYOffset", db = cfg, text = L["Timer Text Y Offset"] or "计时文本Y轴偏移", min=-100, max=100, step=1, callback = handleCallback })
+                    table.insert(childs, { type = "color", key = "textColor", db = cfg, text = L["Text Color"] or "文本颜色", callback = handleCallback })
+
+                    py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, {{type="group", key="mon_t", text=L["Text Layout"] or "文本排版设定", childs=childs}}, handleCallback)
                 
                 elseif subMenu == "gradient" then
                     local gOpts = BuildGradientOpts(cfg, handleCallback)

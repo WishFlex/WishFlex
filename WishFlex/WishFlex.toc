@@ -3,7 +3,7 @@
 ## Notes: WishFlex 独立界面增强核心插件
 ## Notes-zhCN: WishFlex 独立界面增强核心插件
 ## Author: Wish
-## Version: 3.1
+## Version: 3.1.3
 ## IconTexture: Interface\AddOns\WishFlex\Media\Textures\Logo2.tga
 ## SavedVariables: WishFlexDB
 ## OptionalDeps: LibCustomGlow-1.0, LibSharedMedia-3.0, SharedMedia

@@ -116,7 +116,6 @@ function CR:UpdateDividers(bar, maxVal)
     local width = targetFrame:GetWidth() or 250
     local height = targetFrame:GetHeight() or 10
     
-    -- 动态判断主资源条是否也是垂直模式
     local isVert = (bar.statusBar and bar.statusBar:GetOrientation() == "VERTICAL")
     
     local stateHash = numMax .. "_" .. width .. "_" .. height .. "_" .. tostring(isVert)
@@ -132,7 +131,6 @@ function CR:UpdateDividers(bar, maxVal)
             local tex = targetFrame:CreateTexture(nil, "OVERLAY", nil, 7); tex:SetColorTexture(0, 0, 0, 1); bar.dividers[i] = tex 
         end
         
-        -- 精确浮点定位，消除反向填充缝隙
         local offset = segWidth * i
         bar.dividers[i]:ClearAllPoints()
         
@@ -188,7 +186,6 @@ function CR:UpdateMonitorDividers(f, numMax, widthOrHeight)
             for i = 1, self.numMax - 1 do
                 if self.divs and self.divs[i] then
                     local offset = exactSeg * i
-                    -- 核心修复：绝对禁止使用SetWidth(0)，使用纯点锚定逻辑覆盖
                     self.divs[i]:ClearAllPoints()
                     
                     if isVert then
@@ -419,12 +416,17 @@ function CR:PrepareMonitorStyle(f, wmDB, cfg, spellID)
     local isTextMode = (cfg.displayMode == "text")
     visualConfig.useStatusBar = (not isTextMode)
     
-    visualConfig.height = fHeight
+visualConfig.height = fHeight
     
-    visualConfig.textEnable = false
-    visualConfig.textAnchor = "CENTER"
-    visualConfig.xOffset = 0
-    visualConfig.yOffset = 0
+    -- 将写死的设置改为读取配置中的参数
+    if cfg.textEnable ~= nil then 
+        visualConfig.textEnable = cfg.textEnable 
+    else 
+        visualConfig.textEnable = false 
+    end
+    visualConfig.textAnchor = cfg.textAnchor or "CENTER"
+    visualConfig.xOffset = tonumber(cfg.xOffset) or 0
+    visualConfig.yOffset = tonumber(cfg.yOffset) or 0
     
     if cfg.timerEnable ~= nil then visualConfig.timerEnable = cfg.timerEnable else visualConfig.timerEnable = cfg.showTimerText end
     visualConfig.timerAnchor = cfg.timerAnchor
@@ -436,6 +438,20 @@ function CR:PrepareMonitorStyle(f, wmDB, cfg, spellID)
     local spellInfo = C_Spell.GetSpellInfo(spellID)
     if spellInfo then visualConfig.iconID = spellInfo.iconID end
     
+    visualConfig.stackThreshold1 = cfg.stackThreshold1
+    visualConfig.stackColor1 = cfg.stackColor1
+    visualConfig.stackThreshold2 = cfg.stackThreshold2
+    visualConfig.stackColor2 = cfg.stackColor2
+    visualConfig.enableThreshold = cfg.enableThreshold
+    visualConfig.colorThresholds = cfg.colorThresholds
+
+    visualConfig.enableGradient = cfg.enableGradient
+    visualConfig.gradientStart = cfg.gradientStart
+    visualConfig.gradientEnd = cfg.gradientEnd
+
+    local isIndependent = (cfg.independent or isTextMode)
+    visualConfig.orientation = (isIndependent and cfg.orientation == "VERTICAL") and "VERTICAL" or "HORIZONTAL"
+
     if WF.BarEngine then WF.BarEngine:ApplyStyle(f, visualConfig) end
     if f.chargeBar then
         local fgTex = f.chargeBar:GetStatusBarTexture()
@@ -448,6 +464,7 @@ function CR:PrepareMonitorStyle(f, wmDB, cfg, spellID)
     end
     
     f.calcWidth = CR.PixelSnap(fWidth); f.calcHeight = CR.PixelSnap(fHeight)
+
     return visualConfig
 end
 
@@ -479,7 +496,8 @@ function CR:RenderMonitors(activeData, wmDB)
         visualConfig.mode = data.cfg and data.cfg.mode or "time"
         local isTextMode = (data.cfg and data.cfg.displayMode == "text")
         local isIndependent = (data.cfg and data.cfg.independent)
-        local orient = (isIndependent and data.cfg.orientation) or "HORIZONTAL"
+        
+        local orient = visualConfig.orientation or "HORIZONTAL"
 
         if data.isEclipse then
             local sData = data.solar; local lData = data.lunar; local isDual = (sData ~= nil and lData ~= nil)
@@ -489,7 +507,13 @@ function CR:RenderMonitors(activeData, wmDB)
                 
                 local sMatchedColor = nil
                 if CR.GetDynamicBarColor then
-                    sMatchedColor = CR.GetDynamicBarColor(sData.state.count, sData.state.maxVal, sData.cfg, visualConfig.color)
+                    if CR.IsSecret(sData.state.count) then
+                        if sData.cfg.enableGradient and sData.cfg.gradientStart and sData.cfg.gradientEnd then
+                            sMatchedColor = { isGradient = true, startC = sData.cfg.gradientStart, endC = sData.cfg.gradientEnd }
+                        end
+                    else
+                        sMatchedColor = CR.GetDynamicBarColor(tonumber(sData.state.count) or 0, sData.state.maxVal, sData.cfg, visualConfig.color)
+                    end
                     if sMatchedColor then 
                         if sMatchedColor.isGradient then
                             visualConfig.color.r, visualConfig.color.g, visualConfig.color.b, visualConfig.color.a = 1,1,1,1
@@ -521,7 +545,13 @@ function CR:RenderMonitors(activeData, wmDB)
                 
                 local lMatchedColor = nil
                 if CR.GetDynamicBarColor then
-                    lMatchedColor = CR.GetDynamicBarColor(lData.state.count, lData.state.maxVal, lData.cfg, lVis.color)
+                    if CR.IsSecret(lData.state.count) then
+                        if lData.cfg.enableGradient and lData.cfg.gradientStart and lData.cfg.gradientEnd then
+                            lMatchedColor = { isGradient = true, startC = lData.cfg.gradientStart, endC = lData.cfg.gradientEnd }
+                        end
+                    else
+                        lMatchedColor = CR.GetDynamicBarColor(tonumber(lData.state.count) or 0, lData.state.maxVal, lData.cfg, lVis.color)
+                    end
                     if lMatchedColor then 
                         if lMatchedColor.isGradient then
                             lVis.color.r, lVis.color.g, lVis.color.b, lVis.color.a = 1,1,1,1
@@ -553,7 +583,13 @@ function CR:RenderMonitors(activeData, wmDB)
                 
                 local matchedColor = nil
                 if CR.GetDynamicBarColor then
-                    matchedColor = CR.GetDynamicBarColor(sData.state.count, sData.state.maxVal, sData.cfg, visualConfig.color)
+                    if CR.IsSecret(sData.state.count) then
+                        if sData.cfg.enableGradient and sData.cfg.gradientStart and sData.cfg.gradientEnd then
+                            matchedColor = { isGradient = true, startC = sData.cfg.gradientStart, endC = sData.cfg.gradientEnd }
+                        end
+                    else
+                        matchedColor = CR.GetDynamicBarColor(tonumber(sData.state.count) or 0, sData.state.maxVal, sData.cfg, visualConfig.color)
+                    end
                     if matchedColor then 
                         if matchedColor.isGradient then
                             visualConfig.color.r, visualConfig.color.g, visualConfig.color.b, visualConfig.color.a = 1,1,1,1
@@ -588,12 +624,18 @@ function CR:RenderMonitors(activeData, wmDB)
                 
                 local matchedColor = nil
                 if CR.GetDynamicBarColor then
-                    matchedColor = CR.GetDynamicBarColor(lData.state.count, lData.state.maxVal, lData.cfg, lVis.color)
+                    if CR.IsSecret(lData.state.count) then
+                        if lData.cfg.enableGradient and lData.cfg.gradientStart and lData.cfg.gradientEnd then
+                            matchedColor = { isGradient = true, startC = lData.cfg.gradientStart, endC = lData.cfg.gradientEnd }
+                        end
+                    else
+                        matchedColor = CR.GetDynamicBarColor(tonumber(lData.state.count) or 0, lData.state.maxVal, lData.cfg, lVis.color)
+                    end
                     if matchedColor then 
                         if matchedColor.isGradient then
                             lVis.color.r, lVis.color.g, lVis.color.b, lVis.color.a = 1,1,1,1
                         else
-                            lVis.color.r = matchedColor.r or 1; lVis.color.g = matchedColor.g or 1; lVis.color.b = matchedColor.b or 1; visualConfig.color.a = matchedColor.a or 1 
+                            lVis.color.r = matchedColor.r or 1; lVis.color.g = matchedColor.g or 1; lVis.color.b = matchedColor.b or 1; lVis.color.a = matchedColor.a or 1 
                         end
                     end
                 end
@@ -624,8 +666,14 @@ function CR:RenderMonitors(activeData, wmDB)
                     numMax = tonumber(data.cfg.maxStacks) or numMax
                 end
                 
-                local decodedCurr = CR.DecodeSecretValue(state.count, numMax)
-                matchedColor = CR.GetDynamicBarColor(decodedCurr, numMax, data.cfg, visualConfig.color)
+                if CR.IsSecret(state.count) then
+                    if data.cfg.enableGradient and data.cfg.gradientStart and data.cfg.gradientEnd then
+                        matchedColor = { isGradient = true, startC = data.cfg.gradientStart, endC = data.cfg.gradientEnd }
+                    end
+                else
+                    local decodedCurr = tonumber(state.count) or 0
+                    matchedColor = CR.GetDynamicBarColor(decodedCurr, numMax, data.cfg, visualConfig.color)
+                end
                 
                 if matchedColor then
                     if matchedColor.isGradient then
@@ -661,7 +709,6 @@ function CR:RenderMonitors(activeData, wmDB)
     self:RepositionMonitors()
 end
 
-
 function CR:RepositionMonitors()
     if WF.db and WF.db.classResource and WF.db.classResource.enable == false then return end
 
@@ -681,12 +728,13 @@ function CR:RepositionMonitors()
             activeAnchors[anchorName] = true
             
             if not _G[anchorName] then
-                local spellInfo = nil; pcall(function() spellInfo = C_Spell.GetSpellInfo(tonumber(f.spellID)) end)
+                local actualID = f.cfg.realSpellID or tostring(f.spellID):gsub("_TXT", "")
+                local spellInfo = nil; pcall(function() spellInfo = C_Spell.GetSpellInfo(tonumber(actualID)) end)
                 local nameStr = spellInfo and spellInfo.name or f.spellIDStr
                 CR:CreateAnchor(anchorName, "WishFlex: [独立/文本] " .. nameStr, 80, f.calcHeight or 20)
             end
             
-local mover = _G[anchorName.."Mover"] or _G[anchorName]
+            local mover = _G[anchorName.."Mover"] or _G[anchorName]
             if mover then
                 mover._isDeletedMonitor = false
                 if mover.textOverlayFrame then mover.textOverlayFrame:Hide() end
@@ -704,7 +752,13 @@ local mover = _G[anchorName.."Mover"] or _G[anchorName]
                 if isConfigOpen then mover:Show() else mover:Hide() end
             end
             f:ClearAllPoints(); f:SetPoint("CENTER", mover, "CENTER", 0, 0)
-            if f.cfg.displayMode ~= "text" then f:SetSize(f.calcWidth, f.calcHeight) else f:SetSize(math_max(f.calcWidth or 80, 80), math_max(f.calcHeight or 40, 40)) end
+            if f.cfg.displayMode ~= "text" then 
+                f:SetSize(f.calcWidth, f.calcHeight) 
+                if mover then mover:SetSize(f.calcWidth, f.calcHeight) end
+            else 
+                f:SetSize(60, 40)
+                if mover then mover:SetSize(60, 40) end
+            end
         end
     end
     
@@ -718,7 +772,7 @@ local mover = _G[anchorName.."Mover"] or _G[anchorName]
                 local cfg = (wmDB.skills and wmDB.skills[spellIDStr]) or (wmDB.buffs and wmDB.buffs[spellIDStr])
                 local mover = _G[anchorName.."Mover"] or _G[anchorName]
                 
-if mover then
+                if mover then
                     if cfg and (cfg.independent or cfg.displayMode == "text") then
                         mover._isDeletedMonitor = false
                         mover:EnableMouse(false)

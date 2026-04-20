@@ -9,7 +9,6 @@ local ActiveKeys = {}
 local DEFAULT_BG_COLOR = {r=0, g=0, b=0, a=0.5}
 local DEFAULT_BAR_COLOR = {r=0, g=0.8, b=1, a=1}
 
--- 【极限优化】：提取所有高频调用的安全执行函数为静态指针，彻底消除 pcall 匿名闭包的内存碎片
 local function SafeIsSecretValue(val) return type(val) == "number" and type(issecretvalue) == "function" and issecretvalue(val) end
 local function SafeSetCooldownObj(cd, obj) cd:SetCooldownFromDurationObject(obj) end
 local function SafeClearTimer(bar) bar:ClearTimerDuration() end
@@ -146,15 +145,42 @@ function WF.BarEngine:ApplyStyle(f, visualConfig)
     
     local c = visualConfig.color or DEFAULT_BAR_COLOR
     local reverse = visualConfig.reverseFill and true or false
+    local orient = visualConfig.orientation or "HORIZONTAL"
+    
+    f.chargeBar:SetOrientation(orient)
+    if f.refreshCharge then f.refreshCharge:SetOrientation(orient) end
     
     f.chargeBar:SetReverseFill(reverse); f.refreshCharge:SetReverseFill(reverse)
     f.chargeBar:SetStatusBarTexture(texPath)
+    f.refreshCharge:SetStatusBarTexture(texPath)
     
     local fgAlpha = tonumber(c.a) or 1
-    f.chargeBar:SetStatusBarColor(tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, fgAlpha)
+
+    local hasGradientColors = visualConfig.gradientStart and visualConfig.gradientEnd
+    local isThresholdEnabled = visualConfig.enableThreshold or (tonumber(visualConfig.stackThreshold1) or 0) > 0 or (tonumber(visualConfig.stackThreshold2) or 0) > 0
+    local useGradient = false
+    if visualConfig.enableGradient and hasGradientColors then
+        useGradient = true
+    elseif hasGradientColors and not isThresholdEnabled then
+        useGradient = true
+    end
     
-    f.refreshCharge:SetStatusBarTexture(texPath)
-    f.refreshCharge:SetStatusBarColor(tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, fgAlpha * 0.8)
+    if useGradient then
+        local s = visualConfig.gradientStart
+        local e = visualConfig.gradientEnd
+        f.chargeBar:GetStatusBarTexture():SetGradient(orient, CreateColor(s.r, s.g, s.b, s.a or 1), CreateColor(e.r, e.g, e.b, e.a or 1))
+        f.chargeBar:SetStatusBarColor(1, 1, 1, 1)
+        
+        f.refreshCharge:GetStatusBarTexture():SetGradient(orient, CreateColor(s.r, s.g, s.b, (s.a or 1)*0.8), CreateColor(e.r, e.g, e.b, (e.a or 1)*0.8))
+        f.refreshCharge:SetStatusBarColor(1, 1, 1, 1)
+    else
+        if f.chargeBar:GetStatusBarTexture().SetGradient then 
+            f.chargeBar:GetStatusBarTexture():SetGradient(orient, CreateColor(1,1,1,1), CreateColor(1,1,1,1)) 
+            f.refreshCharge:GetStatusBarTexture():SetGradient(orient, CreateColor(1,1,1,1), CreateColor(1,1,1,1)) 
+        end
+        f.chargeBar:SetStatusBarColor(tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, fgAlpha)
+        f.refreshCharge:SetStatusBarColor(tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, fgAlpha * 0.8)
+    end
 
     local tC = visualConfig.textColor or visualConfig.color or {r=1, g=1, b=1, a=1}
     f.stackText:SetFont(fontPath, fSize + 2, "OUTLINE")
@@ -213,29 +239,258 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
     if not f then return end
     f.maxVal = state.maxVal or 1
     f.state = state
+    f._cfg = visualConfig
 
     local c = visualConfig.color or DEFAULT_BAR_COLOR
-    local r, g, b, a = tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, tonumber(c.a) or 1
-    
+    local success, isSecret = pcall(SafeIsSecretValue, state.count)
+    local orient = visualConfig.orientation or "HORIZONTAL"
+    local isVert = (orient == "VERTICAL")
+
+    local hasGradientColors = visualConfig.gradientStart and visualConfig.gradientEnd
+    local isThresholdEnabled = visualConfig.enableThreshold or (tonumber(visualConfig.stackThreshold1) or 0) > 0 or (tonumber(visualConfig.stackThreshold2) or 0) > 0
+    local useGradient = false
+    if visualConfig.enableGradient and hasGradientColors then
+        useGradient = true
+    elseif hasGradientColors and not isThresholdEnabled then
+        useGradient = true
+    end
+
+    if f._nativeClips then
+        for _, stages in pairs(f._nativeClips) do
+            for _, clip in ipairs(stages) do clip:Hide() end
+        end
+    end
+    if f._overlayContainer then f._overlayContainer:Hide() end
+
+    -- =========================================================================
+    -- 【核心分发网络】
+    -- =========================================================================
+    if state.isActive and state.count and visualConfig.useStatusBar then
+        if useGradient then
+            local s = visualConfig.gradientStart
+            local e = visualConfig.gradientEnd
+            
+            if f.chargeBar then
+                local tex = f.chargeBar:GetStatusBarTexture()
+                if tex and tex.SetGradient then tex:SetGradient(orient, CreateColor(s.r, s.g, s.b, s.a or 1), CreateColor(e.r, e.g, e.b, e.a or 1)) end
+                f.chargeBar:SetStatusBarColor(1, 1, 1, 1) 
+            end
+            if f.refreshCharge then
+                local tex = f.refreshCharge:GetStatusBarTexture()
+                if tex and tex.SetGradient then tex:SetGradient(orient, CreateColor(s.r, s.g, s.b, (s.a or 1)*0.8), CreateColor(e.r, e.g, e.b, (e.a or 1)*0.8)) end
+                f.refreshCharge:SetStatusBarColor(1, 1, 1, 1)
+            end
+        else
+            if f.chargeBar then
+                local tex = f.chargeBar:GetStatusBarTexture()
+                if tex and tex.SetGradient then tex:SetGradient(orient, CreateColor(1, 1, 1, 1), CreateColor(1, 1, 1, 1)) end
+            end
+            if f.refreshCharge then
+                local tex = f.refreshCharge:GetStatusBarTexture()
+                if tex and tex.SetGradient then tex:SetGradient(orient, CreateColor(1, 1, 1, 1), CreateColor(1, 1, 1, 1)) end
+            end
+
+            if success and isSecret then
+                local maxVal = tonumber(f.maxVal) or 1
+                if maxVal < 1 then maxVal = 1 end
+
+                local stages = {}
+                if f._cfg.enableThreshold and type(f._cfg.colorThresholds) == "table" then
+                    for i = 1, 5 do
+                        local st = f._cfg.colorThresholds[i]
+                        if type(st) == "table" and st.enable then
+                            local v = tonumber(st.value) or 0
+                            if v > 0 then table.insert(stages, { val = v, color = st.color }) end
+                        end
+                    end
+                else
+                    local t2 = tonumber(f._cfg.stackThreshold2) or 0
+                    if t2 > 0 and f._cfg.stackColor2 then table.insert(stages, { val = t2, color = f._cfg.stackColor2 }) end
+                    local t1 = tonumber(f._cfg.stackThreshold1) or 0
+                    if t1 > 0 and f._cfg.stackColor1 then table.insert(stages, { val = t1, color = f._cfg.stackColor1 }) end
+                end
+
+                table.sort(stages, function(a, b) return a.val < b.val end)
+
+                if #stages > 0 then
+                    -- 保持底层可见，因为网格会在满足条件时完美覆盖在上方
+                    if f.chargeBar then f.chargeBar:SetStatusBarColor(tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, tonumber(c.a) or 1) end 
+                    if f.refreshCharge then f.refreshCharge:SetStatusBarColor(tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, (tonumber(c.a) or 1) * 0.8) end
+                    
+                    if not f._overlayContainer then
+                        f._overlayContainer = CreateFrame("Frame", nil, f.chargeBar)
+                        f._overlayContainer:SetFrameLevel(f.chargeBar:GetFrameLevel() + 2)
+                        f._overlayContainer:SetAllPoints(f.chargeBar)
+                        
+                        -- 【双向自适应网格】：完美支持垂直/水平模式下的裁切排版
+                        f._overlayContainer:SetScript("OnSizeChanged", function(self, w, h)
+                            if not f._nativeClips then return end
+                            local maxV = tonumber(f.maxVal) or 1
+                            if maxV < 1 then maxV = 1 end
+                            local sW = isVert and (h / maxV) or (w / maxV)
+                            local rev = f._cfg and f._cfg.reverseFill
+                            
+                            for _, sgStages in pairs(f._nativeClips) do
+                                for i, clip in ipairs(sgStages) do
+                                    clip:ClearAllPoints()
+                                    if isVert then
+                                        if rev then clip:SetPoint("TOP", self, "TOP", 0, -((i-1)*sW))
+                                        else clip:SetPoint("BOTTOM", self, "BOTTOM", 0, (i-1)*sW) end
+                                        clip:SetSize(w, sW)
+                                    else
+                                        if rev then clip:SetPoint("RIGHT", self, "RIGHT", -((i-1)*sW), 0)
+                                        else clip:SetPoint("LEFT", self, "LEFT", (i-1)*sW, 0) end
+                                        clip:SetSize(sW, h)
+                                    end
+                                end
+                            end
+                        end)
+                    end
+                    f._overlayContainer:Show()
+
+                    f._nativeClips = f._nativeClips or {}
+                    f._nativeSegs = f._nativeSegs or {}
+                    local totalW = f.chargeBar:GetWidth() or 10
+                    local totalH = f.chargeBar:GetHeight() or 10
+                    local sW = isVert and (totalH / maxVal) or (totalW / maxVal)
+                    local rev = f._cfg.reverseFill
+
+                    for stageIdx, stage in ipairs(stages) do
+                        f._nativeClips[stageIdx] = f._nativeClips[stageIdx] or {}
+                        f._nativeSegs[stageIdx] = f._nativeSegs[stageIdx] or {}
+                        local t = stage.val; local sc = stage.color
+
+                        for i = 1, maxVal do
+                            local clip = f._nativeClips[stageIdx][i]
+                            if not clip then
+                                clip = CreateFrame("Frame", nil, f._overlayContainer)
+                                clip:SetClipsChildren(true) 
+                                f._nativeClips[stageIdx][i] = clip
+                            end
+
+                            clip:SetFrameLevel(f._overlayContainer:GetFrameLevel() + stageIdx)
+                            clip:ClearAllPoints()
+                            if isVert then
+                                if rev then clip:SetPoint("TOP", f._overlayContainer, "TOP", 0, -((i-1)*sW))
+                                else clip:SetPoint("BOTTOM", f._overlayContainer, "BOTTOM", 0, (i-1)*sW) end
+                                clip:SetSize(totalW, sW)
+                            else
+                                if rev then clip:SetPoint("RIGHT", f._overlayContainer, "RIGHT", -((i-1)*sW), 0)
+                                else clip:SetPoint("LEFT", f._overlayContainer, "LEFT", (i-1)*sW, 0) end
+                                clip:SetSize(sW, totalH)
+                            end
+                            clip:Show()
+
+                            local seg = f._nativeSegs[stageIdx][i]
+                            if not seg then
+                                seg = CreateFrame("StatusBar", nil, clip)
+                                f._nativeSegs[stageIdx][i] = seg
+                            end
+
+                            -- 同步贴图与方向
+                            seg:SetOrientation(orient)
+                            seg:ClearAllPoints()
+                            seg:SetPoint("TOPLEFT", f.chargeBar, "TOPLEFT", 0, 0)
+                            seg:SetPoint("BOTTOMRIGHT", f.chargeBar, "BOTTOMRIGHT", 0, 0)
+
+                            local tex = f.chargeBar:GetStatusBarTexture()
+                            if tex then seg:SetStatusBarTexture(tex:GetTexture()) end
+                            
+                            if seg:GetStatusBarTexture().SetGradient then seg:GetStatusBarTexture():SetGradient(orient, CreateColor(1,1,1,1), CreateColor(1,1,1,1)) end
+                            if sc then seg:SetStatusBarColor(tonumber(sc.r) or 1, tonumber(sc.g) or 1, tonumber(sc.b) or 1, tonumber(sc.a) or 1) end
+                            
+                            seg:EnableMouse(false)
+                            if seg.SetReverseFill then pcall(seg.SetReverseFill, seg, rev) end
+                            seg:SetMinMaxValues((i < t) and (t - 1) or (i - 1), (i < t) and t or i)
+                            pcall(seg.SetValue, seg, state.count)
+                            seg:Show()
+                        end
+                    end
+                else
+                    if f.chargeBar then f.chargeBar:SetStatusBarColor(tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, tonumber(c.a) or 1) end
+                    if f.refreshCharge then f.refreshCharge:SetStatusBarColor(tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, (tonumber(c.a) or 1) * 0.8) end
+                end
+            else
+                local currentVal = tonumber(state.count) or 0
+                local activeColor = c
+                if currentVal > 0 then
+                    local t1 = tonumber(f._cfg.stackThreshold1) or 0
+                    local t2 = tonumber(f._cfg.stackThreshold2) or 0
+                    
+                    if t2 > 0 and currentVal >= t2 and f._cfg.stackColor2 then
+                        activeColor = f._cfg.stackColor2
+                    elseif t1 > 0 and currentVal >= t1 and f._cfg.stackColor1 then
+                        activeColor = f._cfg.stackColor1
+                    end
+
+                    if f._cfg.enableThreshold and type(f._cfg.colorThresholds) == "table" then
+                        local highestMatchedColor = nil
+                        local highestTriggerVal = -999999
+                        for i = 1, 5 do
+                            local stage = f._cfg.colorThresholds[i]
+                            if type(stage) == "table" and stage.enable then
+                                local triggerVal = tonumber(stage.value) or 0
+                                if currentVal >= triggerVal and triggerVal > highestTriggerVal then 
+                                    highestTriggerVal = triggerVal; highestMatchedColor = stage.color 
+                                end
+                            end
+                        end
+                        if highestMatchedColor then activeColor = highestMatchedColor end
+                    end
+                end
+
+                local cr, cg, cb, ca = tonumber(activeColor.r) or 1, tonumber(activeColor.g) or 1, tonumber(activeColor.b) or 1, tonumber(activeColor.a) or 1
+                if f.chargeBar then f.chargeBar:SetStatusBarColor(cr, cg, cb, ca) end
+                if f.refreshCharge then f.refreshCharge:SetStatusBarColor(cr, cg, cb, ca * 0.8) end
+            end
+        end
+    else
+        if visualConfig.useStatusBar then
+            if useGradient then
+                local s = visualConfig.gradientStart
+                local e = visualConfig.gradientEnd
+                if f.chargeBar then 
+                    local tex = f.chargeBar:GetStatusBarTexture()
+                    if tex and tex.SetGradient then tex:SetGradient(orient, CreateColor(s.r, s.g, s.b, s.a or 1), CreateColor(e.r, e.g, e.b, e.a or 1)) end
+                    f.chargeBar:SetStatusBarColor(1, 1, 1, 1) 
+                end
+                if f.refreshCharge then 
+                    local tex = f.refreshCharge:GetStatusBarTexture()
+                    if tex and tex.SetGradient then tex:SetGradient(orient, CreateColor(s.r, s.g, s.b, (s.a or 1)*0.8), CreateColor(e.r, e.g, e.b, (e.a or 1)*0.8)) end
+                    f.refreshCharge:SetStatusBarColor(1, 1, 1, 1) 
+                end
+            else
+                if f.chargeBar then 
+                    local tex = f.chargeBar:GetStatusBarTexture()
+                    if tex and tex.SetGradient then tex:SetGradient(orient, CreateColor(1, 1, 1, 1), CreateColor(1, 1, 1, 1)) end
+                    f.chargeBar:SetStatusBarColor(tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, tonumber(c.a) or 1) 
+                end
+                if f.refreshCharge then 
+                    local tex = f.refreshCharge:GetStatusBarTexture()
+                    if tex and tex.SetGradient then tex:SetGradient(orient, CreateColor(1, 1, 1, 1), CreateColor(1, 1, 1, 1)) end
+                    f.refreshCharge:SetStatusBarColor(tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, (tonumber(c.a) or 1) * 0.8) 
+                end
+            end
+        end
+    end
+
     local isTextMode = (visualConfig.displayMode == "text")
     local showStack = (visualConfig.textEnable ~= false)
     local showTimer = (visualConfig.timerEnable ~= false)
 
     if isTextMode then showStack = false end
 
+    -- ====== 常规图形渲染 ======
     if state.isActive then
         f:SetAlpha(1)
         
         if visualConfig.useStatusBar then
-            f.chargeBar:SetStatusBarColor(r, g, b, a)
-            f.refreshCharge:SetStatusBarColor(r, g, b, a * 0.8)
-            
             if isTextMode then
                 f.chargeBar:SetAlpha(0)
-                f.refreshCharge:SetAlpha(0)
+                if f.refreshCharge then f.refreshCharge:SetAlpha(0) end
             else
                 f.chargeBar:SetAlpha(1)
-                f.refreshCharge:SetAlpha(1)
+                if f.refreshCharge then f.refreshCharge:SetAlpha(1) end
             end
         end
 
@@ -245,7 +500,6 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
             f.stackText:Hide()
         else
             f.stackText:SetAlpha(1)
-            local success, isSecret = pcall(SafeIsSecretValue, state.count)
             if success and isSecret then 
                 pcall(SafeSetText, f.stackText, state.count)
                 f.stackText:Show() 
@@ -263,17 +517,18 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
             if state.trackType == "buff" and visualConfig.mode == "stack" then
                 f.chargeBar:Show(); f.refreshCharge:Hide()
                 if f.chargeBar.ClearTimerDuration then pcall(SafeClearTimer, f.chargeBar) end
-                f.chargeBar:SetMinMaxValues(0, state.maxVal); f.chargeBar:SetValue(state.count or 0)
+                f.chargeBar:SetMinMaxValues(0, state.maxVal)
+                pcall(f.chargeBar.SetValue, f.chargeBar, state.count or 0) 
                 f.cd:ClearAllPoints(); f.cd:SetAllPoints(f.chargeBar) 
                 if f.timerText and showTimer then ApplyTextAnchor(f.timerText, visualConfig.timerAnchor, f, visualConfig.timerXOffset, visualConfig.timerYOffset, "RIGHT") end
             elseif state.trackType == "charge" then
                 f.chargeBar:Show()
                 if f.chargeBar.ClearTimerDuration then pcall(SafeClearTimer, f.chargeBar) end
-                f.chargeBar:SetMinMaxValues(0, state.maxVal); f.chargeBar:SetValue(state.count or 0)
+                f.chargeBar:SetMinMaxValues(0, state.maxVal)
+                pcall(f.chargeBar.SetValue, f.chargeBar, state.count or 0)
 
                 local needsRecharge = false
-                local sSuccess, isSecret = pcall(SafeIsSecretValue, state.count)
-                if sSuccess and isSecret then needsRecharge = true else local cnt = tonumber(state.count) or 0; if cnt < state.maxVal then needsRecharge = true end end
+                if success and isSecret then needsRecharge = true else local cnt = tonumber(state.count) or 0; if cnt < state.maxVal then needsRecharge = true end end
 
                 if needsRecharge and state.durObjC then
                     local totalW = f:GetWidth(); if not totalW or totalW < 5 then totalW = f.calcWidth or 100 end
@@ -324,31 +579,36 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
         if visualConfig.useStatusBar then
             f.chargeBar:Show(); f.refreshCharge:Hide()
             if f.chargeBar.ClearTimerDuration then pcall(SafeClearTimer, f.chargeBar) end
-            if f.refreshCharge.ClearTimerDuration then pcall(SafeClearTimer, f.refreshCharge) end
+            if f.refreshCharge and f.refreshCharge.ClearTimerDuration then pcall(SafeClearTimer, f.refreshCharge) end
             f.chargeBar:SetMinMaxValues(0, f.maxVal or 1)
             
             if isConfigOpen then
                 f.chargeBar:SetValue((f.maxVal or 1) * 0.5)
-                local fgAlpha = tonumber(c.a) or 1
-                f.chargeBar:SetStatusBarColor(r, g, b, fgAlpha)
                 f:SetAlpha(1)
                 
+                if useGradient then
+                    local s = visualConfig.gradientStart
+                    local e = visualConfig.gradientEnd
+                    if f.chargeBar then 
+                        local tex = f.chargeBar:GetStatusBarTexture()
+                        if tex and tex.SetGradient then tex:SetGradient(orient, CreateColor(s.r, s.g, s.b, s.a or 1), CreateColor(e.r, e.g, e.b, e.a or 1)) end
+                        f.chargeBar:SetStatusBarColor(1, 1, 1, 1) 
+                    end
+                else
+                    local r, g, b, a = tonumber(c.r) or 1, tonumber(c.g) or 1, tonumber(c.b) or 1, tonumber(c.a) or 1
+                    f.chargeBar:SetStatusBarColor(r, g, b, a)
+                end
+                
                 if isTextMode then
-                    f.chargeBar:SetAlpha(0)
-                    f.bg:Hide()
+                    f.chargeBar:SetAlpha(0); f.bg:Hide()
                     if f.sbBorder then f.sbBorder:Hide() end
                 else
-                    f.chargeBar:SetAlpha(1)
-                    f.bg:Show()
+                    f.chargeBar:SetAlpha(1); f.bg:Show()
                     if f.sbBorder then f.sbBorder:Show() end
                 end
                 
-                if showTimer and f.timerText then 
-                    f.timerText:SetText("5.0"); f.timerText:SetAlpha(1); f.timerText:Show() 
-                end
-                if showStack then
-                    f.stackText:SetText(f.maxVal and f.maxVal > 1 and f.maxVal or "3"); f.stackText:SetAlpha(1); f.stackText:Show()
-                end
+                if showTimer and f.timerText then f.timerText:SetText("5.0"); f.timerText:SetAlpha(1); f.timerText:Show() end
+                if showStack then f.stackText:SetText(f.maxVal and f.maxVal > 1 and f.maxVal or "3"); f.stackText:SetAlpha(1); f.stackText:Show() end
             else
                 f.chargeBar:SetValue(0)
                 if visualConfig.alwaysShow then f:SetAlpha(1) else f:SetAlpha(0) end
@@ -356,12 +616,8 @@ function WF.BarEngine:UpdateState(f, state, visualConfig)
             f.cd:ClearAllPoints(); f.cd:SetAllPoints(f.chargeBar)
         else
             if isConfigOpen then
-                if showTimer and f.timerText then 
-                    f.timerText:SetText("5.0"); f.timerText:SetAlpha(1); f.timerText:Show() 
-                end
-                if showStack then
-                    f.stackText:SetText(f.maxVal and f.maxVal > 1 and f.maxVal or "3"); f.stackText:SetAlpha(1); f.stackText:Show()
-                end
+                if showTimer and f.timerText then f.timerText:SetText("5.0"); f.timerText:SetAlpha(1); f.timerText:Show() end
+                if showStack then f.stackText:SetText(f.maxVal and f.maxVal > 1 and f.maxVal or "3"); f.stackText:SetAlpha(1); f.stackText:Show() end
                 f:SetAlpha(1)
             else f:SetAlpha(0) end
         end

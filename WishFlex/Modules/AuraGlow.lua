@@ -27,7 +27,6 @@ local SKILL_VIEWERS = { "EssentialCooldownViewer", "UtilityCooldownViewer" }
 local BUFF_VIEWERS = { "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
 local AURA_FILTERS = { "HELPFUL", "HARMFUL" }
 
--- 【极限防抖修复】：移除高频 OnUpdate，改用精准的时间轴物理防抖，彻底阻断 4800次/秒 的 API 内存核弹轰炸
 local updatePending = false
 local function DoUpdateGlows()
     updatePending = false
@@ -46,7 +45,7 @@ local lastTick = 0
 AuraTrackerTicker:SetScript("OnUpdate", function(self, elapsed)
     if not AuraGlowMod.manualTrackers or not next(AuraGlowMod.manualTrackers) then return end
     lastTick = lastTick + elapsed
-    if lastTick >= 0.25 then -- 同步降频
+    if lastTick >= 0.25 then
         lastTick = 0
         local now = GetTime()
         local expired = false
@@ -198,15 +197,17 @@ local function EnsureAuraGlowHost(frame)
 
     local host = frame.wfGlowHost
     if not host then
-        host = CreateFrame("Frame", nil, target)
+        host = CreateFrame("Frame", nil, target) -- 【同源绑定】
         host:SetClampedToScreen(false)
         frame.wfGlowHost = host
     end
 
     if host:GetParent() ~= target then host:SetParent(target) end
     host:ClearAllPoints()
-    host:SetAllPoints(target)
+    host:SetPoint("TOPLEFT", target, "TOPLEFT", 0, 0)
+    host:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", 0, 0)
     
+    if target:GetFrameStrata() then host:SetFrameStrata(target:GetFrameStrata()) end
     host:SetFrameLevel((target:GetFrameLevel() or 1) + 5)
     return host, target
 end

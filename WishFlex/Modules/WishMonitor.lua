@@ -10,7 +10,10 @@ local function GetCurrentSpecID()
     return spec and (GetSpecializationInfo(spec) or 0) or 0
 end
 
-local function IsSecret(v) return type(v) == "number" and issecretvalue and issecretvalue(v) end
+local function IsSecret(v) 
+    return type(issecretvalue) == "function" and issecretvalue(v) 
+end
+
 local function IsSafeValue(val)
     if val == nil then return false end
     if type(issecretvalue) == "function" and issecretvalue(val) then return false end
@@ -139,7 +142,6 @@ local function safeNum(str)
     return tonumber(n) or 0
 end
 
--- 【极限优化 3】：单次 O(1) 汇总映射，杜绝光环循环时产生海量查询垃圾
 local currentAuraTally = {}
 local currentAuraData = {}
 local auraCacheBuilt = false
@@ -158,8 +160,11 @@ local function BuildAuraCache()
                 if not currentAuraData[sid] then
                     currentAuraData[sid] = aura
                 end
+                
                 local apps = aura.applications or 0
-                if type(apps) == "number" and not IsSecret(apps) and apps > 0 then
+                if IsSecret(apps) then
+                    currentAuraTally[sid] = apps
+                elseif type(apps) == "number" and apps > 0 then
                     currentAuraTally[sid] = apps
                 else
                     currentAuraTally[sid] = (currentAuraTally[sid] or 0) + 1

@@ -102,6 +102,7 @@ local function CreateFlatInput(parent, w, h)
     return box
 end
 
+-- 【关键修复1：缓存坐标文本，阻止每秒数百次 tostring 分配内存】
 local function ControlPanelOnUpdate(self)
     local s = WF.SelectedMover
     if not s then return end
@@ -113,15 +114,21 @@ local function ControlPanelOnUpdate(self)
     local nx = math.floor(cx - pw/2 + 0.5)
     local ny = math.floor(cy - ph/2 + 0.5)
     
-    if not self.xInput:HasFocus() and tostring(nx) ~= self.xInput:GetText() then
-        self.xInput:SetText(tostring(nx))
-    end
-    if not self.yInput:HasFocus() and tostring(ny) ~= self.yInput:GetText() then
-        self.yInput:SetText(tostring(ny))
+    -- 仅当坐标真正改变时才生成新的字符串更新UI
+    if self._lastX ~= nx or self._lastY ~= ny then
+        self._lastX = nx
+        self._lastY = ny
+        local nStrX = tostring(nx)
+        local nStrY = tostring(ny)
+        if not self.xInput:HasFocus() then self.xInput:SetText(nStrX) end
+        if not self.yInput:HasFocus() then self.yInput:SetText(nStrY) end
     end
     
-    self:ClearAllPoints()
-    self:SetPoint("BOTTOM", s, "TOP", 0, 30)
+    if self._lastAnchor ~= s then
+        self:ClearAllPoints()
+        self:SetPoint("BOTTOM", s, "TOP", 0, 30)
+        self._lastAnchor = s
+    end
 end
 
 local function CreateEditModePanel()
@@ -504,7 +511,16 @@ end
 function WF:SetEditMode(isActive)
     WF.MoversUnlocked = isActive
     
-    if not isActive then WF:SelectMover(nil) end
+    if not isActive then 
+        WF:SelectMover(nil) 
+        
+        -- 【关键特性】：退出编辑模式时强制清理系统内存，回收拖拽和排版产生的缓存垃圾
+        C_Timer.After(0.5, function()
+            collectgarbage("collect")
+            if UpdateAddOnMemoryUsage then UpdateAddOnMemoryUsage() end
+            print("|cff00ffcc[WishFlex]|r 编辑模式内存缓存已深度清理。")
+        end)
+    end
 
     if WF.ClassResourceAPI and type(WF.ClassResourceAPI.RepositionMonitors) == "function" then
         pcall(function() WF.ClassResourceAPI:RepositionMonitors() end)
@@ -581,10 +597,15 @@ function WF:OpenUI()
         if not loaded then print("|cffff0000[WishFlex]|r 无法加载设置模块: " .. tostring(reason)); return end
     end
     if WF.ToggleUI then WF:ToggleUI() end
+    
+    if WF.SmartFader and type(WF.SmartFader.UpdateVisibility) == "function" then
+        WF.SmartFader:UpdateVisibility()
+    end
 end
 
 SLASH_WISHFLEX1 = "/wf"; SLASH_WISHFLEX2 = "/wishflex"
 SlashCmdList["WISHFLEX"] = function() WF:OpenUI() end
+
 function WF:InitMinimapIcon()
     local L = WF.L
     local LDB = LibStub("LibDataBroker-1.1", true)
@@ -741,6 +762,7 @@ local function InitializeAddon()
             end)
         end
 
+        -- 【关键修复2：彻底拦截原生编辑模式死循环导致的内存泄漏】
         if type(EditModeManagerFrame.UpdateSystemPositions) == "function" then
             hooksecurefunc(EditModeManagerFrame, "UpdateSystemPositions", function()
                 if not WF.db or not WF.db.movers then return end
@@ -749,12 +771,27 @@ local function InitializeAddon()
                     local pos = WF.db.movers[saveKey]
                     if pos and mover.targetFrame then
                         if not mover.isNativeEditMode then
-                            mover.targetFrame:ClearAllPoints()
-                            mover.targetFrame:SetPoint("CENTER", UIParent, "CENTER", pos.xOfs, pos.yOfs)
+                            local _, relTo, _, x, y = mover.targetFrame:GetPoint()
+                            x = x or 0
+                            y = y or 0
+                            -- 引入 0.5 容差值，阻止暴雪底层被无限触发并制造垃圾对象
+                            if relTo ~= UIParent or math.abs(x - pos.xOfs) > 0.5 or math.abs(y - pos.yOfs) > 0.5 then
+                                mover.targetFrame:ClearAllPoints()
+                                mover.targetFrame:SetPoint("CENTER", UIParent, "CENTER", pos.xOfs, pos.yOfs)
+                            end
                         end
                     end
                 end
-                if WF.TriggerCooldownLayout then WF.TriggerCooldownLayout() end
+                
+                if WF.TriggerCooldownLayout then 
+                    if not WF._pendingLayoutThrottle then
+                        WF._pendingLayoutThrottle = true
+                        C_Timer.After(0.1, function()
+                            WF._pendingLayoutThrottle = false
+                            if WF.TriggerCooldownLayout then WF.TriggerCooldownLayout() end
+                        end)
+                    end
+                end
             end)
         end
     end
@@ -789,18 +826,16 @@ local function EnforceCooldownManager()
     end
 end
 
--- 【终极形态：智能分步回收器 (Smart GC)】
--- 在保证0卡顿的前提下，像微波炉雷达一样探测，直到把脱战垃圾完全清理干净才停止。
 local GCManager = CreateFrame("Frame")
 local gcTicker = nil
 GCManager:RegisterEvent("PLAYER_REGEN_ENABLED")
 GCManager:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_REGEN_ENABLED" then
-        C_Timer.After(4, function() -- 给系统留4秒处理脱战数据
+        C_Timer.After(4, function() 
             if InCombatLockdown() then return end
             if gcTicker then gcTicker:Cancel() end
             
-            local maxTicks = 100 -- 最多清理10秒，防止死循环
+            local maxTicks = 100 
             local currentTick = 0
             
             gcTicker = C_Timer.NewTicker(0.1, function()
@@ -809,8 +844,6 @@ GCManager:SetScript("OnEvent", function(self, event)
                     return 
                 end
                 
-                -- collectgarbage("step", 2000) 每次极速扫掉 2MB 垃圾
-                -- 如果它返回 true，说明整个内存里的垃圾已经清空，一尘不染了！
                 local isClean = collectgarbage("step", 2000)
                 currentTick = currentTick + 1
                 
@@ -828,3 +861,26 @@ wfInitFrame:SetScript("OnEvent", function(self, event)
     EnforceCooldownManager()
     self:UnregisterEvent(event)
 end)
+-- 监听 NPC 交互结束事件，自动修复因界面隐藏导致的图标悬空问题
+local function OnInteractionEnded()
+    -- 延迟 0.2 秒以确保暴雪原生框架已经完成显示并退出隐藏状态
+    C_Timer.After(0.2, function()
+        -- 强制刷新冷却图标的自定义排版
+        if WF.TriggerCooldownLayout then 
+            WF.TriggerCooldownLayout() 
+        end
+        -- 强制状态引擎重新扫描并捕获原生 Viewer 的子框架
+        if WF.StateEngine and type(WF.StateEngine.TriggerViewerUpdate) == "function" then
+            WF.StateEngine:TriggerViewerUpdate()
+        end
+        -- 强制刷新自定义监视器的数据
+        if WF.WishMonitorAPI and type(WF.WishMonitorAPI.TriggerUpdate) == "function" then
+            WF.WishMonitorAPI:TriggerUpdate()
+        end
+    end)
+end
+
+-- 注册相关的对话、任务及交互关闭事件
+WF:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", OnInteractionEnded)
+WF:RegisterEvent("GOSSIP_CLOSED", OnInteractionEnded)
+WF:RegisterEvent("QUEST_FINISHED", OnInteractionEnded)

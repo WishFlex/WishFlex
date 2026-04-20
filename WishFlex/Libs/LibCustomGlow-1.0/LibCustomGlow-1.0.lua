@@ -6,7 +6,7 @@ https://www.wowace.com/projects/libbuttonglow-1-0
 -- luacheck: globals CreateFromMixins ObjectPoolMixin CreateTexturePool CreateFramePool
 
 local MAJOR_VERSION = "LibCustomGlow-1.0"
-local MINOR_VERSION = 23
+local MINOR_VERSION = 24
 if not LibStub then error(MAJOR_VERSION .. " requires LibStub.") end
 local lib, oldversion = LibStub:NewLibrary(MAJOR_VERSION, MINOR_VERSION)
 if not lib then return end
@@ -23,26 +23,6 @@ local shineCoords = {0.3984375, 0.4453125, 0.40234375, 0.44921875}
 if isRetail then
     textureList.shine = [[Interface\Artifacts\Artifacts]]
     shineCoords = {0.8115234375,0.9169921875,0.8798828125,0.9853515625}
-end
-
--- 【核心新增：计算当前屏幕真实的物理像素大小】
-local function GetPixelSize()
-    local physH = select(2, GetPhysicalScreenSize())
-    local scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
-    if not physH or physH == 0 or scale == 0 then return 1 end
-    return 768 / (physH * scale)
-end
-
--- 【核心新增：强制吸附到真实物理像素网格】
-local function PixelSnap(value)
-    if not value or value == 0 then return 0 end
-    local pixelSize = GetPixelSize()
-    local px = value / pixelSize
-    if px >= 0 then
-        return math.floor(px + 0.5) * pixelSize
-    else
-        return math.ceil(px - 0.5) * pixelSize
-    end
 end
 
 function lib.RegisterTextures(texture,id)
@@ -152,7 +132,6 @@ local function addFrameAndTex(r,color,name,key,N,xOffset,yOffset,texture,texCoor
     local f = r[name..key]
 	f:SetFrameLevel(r:GetFrameLevel()+frameLevel)
     
-    -- 【修复：删除原有 +0.05 偏移，恢复绝对纯净对齐】
     f:SetPoint("TOPLEFT",r,"TOPLEFT",-xOffset,yOffset)
     f:SetPoint("BOTTOMRIGHT",r,"BOTTOMRIGHT",xOffset,-yOffset)
     f:Show()
@@ -169,18 +148,10 @@ local function addFrameAndTex(r,color,name,key,N,xOffset,yOffset,texture,texCoor
             f.textures[i]:SetDesaturated(desaturated)
             f.textures[i]:SetParent(f)
             f.textures[i]:SetDrawLayer("ARTWORK",7)
-            
-            -- 【修复：坚决关闭引擎的自动对齐，由我们的 PixelSnap 完全接管】
-            if f.textures[i].SetSnapToPixelGrid then
-                f.textures[i]:SetSnapToPixelGrid(false)
-                f.textures[i]:SetTexelSnappingBias(0)
-            end
-
             if not isRetail and name == "_AutoCastGlow" then
                 f.textures[i]:SetBlendMode("ADD")
             end
         end
-        -- Handle both array format {r,g,b,a} and Color objects (for WoW 12.0 secret values)
         if type(color) == "table" and color.GetRGBA then
             f.textures[i]:SetVertexColor(color:GetRGBA())
         else
@@ -207,8 +178,7 @@ local pCalc1 = function(progress,s,th,p)
     else
         c = (progress-p[0])/(p[1]-p[0])*(s-th)
     end
-    -- 【修复：使用物理像素吸附算法】
-    return PixelSnap(c)
+    return c
 end
 
 local pCalc2 = function(progress,s,th,p)
@@ -224,8 +194,7 @@ local pCalc2 = function(progress,s,th,p)
     else
         c = s-th-(progress+1-p[3])/(p[0]+1-p[3])*(s-th)
     end
-    -- 【修复：使用物理像素吸附算法】
-    return PixelSnap(c)
+    return c
 end
 
 local  pUpdate = function(self,elapsed)
@@ -234,17 +203,32 @@ local  pUpdate = function(self,elapsed)
         self.timer = self.timer%1
     end
     local progress = self.timer
-    local width,height = self:GetSize()
     
-    -- 【修复：强制宽高对齐真实物理像素，彻底抹平奇数间距导致的小数】
-    width = PixelSnap(width)
-    height = PixelSnap(height)
+    local width, height = self:GetSize()
+    -- 【防0盾】：如果引擎在重绘时返回了 0 尺寸，强制读取父级尺寸，阻止产生死锁光点！
+    if not width or width == 0 or not height or height == 0 then
+        if self:GetParent() then
+            width, height = self:GetParent():GetSize()
+        end
+        if not width or width == 0 then width = self.info.width or 40 end
+        if not height or height == 0 then height = self.info.height or 40 end
+    end
 
     if width ~= self.info.width or height ~= self.info.height then
         local perimeter = 2*(width+height)
-        if not (perimeter>0) then
-            return
+        if not (perimeter>0) then return end
+        
+        if self.masks and self.masks[1] then
+            self.masks[1]:ClearAllPoints()
+            self.masks[1]:SetPoint("TOPLEFT", self, "TOPLEFT", self.info.th + 0.15, -self.info.th - 0.15)
+            self.masks[1]:SetPoint("BOTTOMRIGHT", self, "TOPLEFT", width - self.info.th - 0.15, -(height - self.info.th) + 0.15)
         end
+        if self.masks and self.masks[2] then
+            self.masks[2]:ClearAllPoints()
+            self.masks[2]:SetPoint("TOPLEFT", self, "TOPLEFT", self.info.th + 1.15, -self.info.th - 1.15)
+            self.masks[2]:SetPoint("BOTTOMRIGHT", self, "TOPLEFT", width - self.info.th - 1.15, -(height - self.info.th - 1) + 0.15)
+        end
+
         self.info.width = width
         self.info.height = height
         self.info.pTLx = {
@@ -275,13 +259,9 @@ local  pUpdate = function(self,elapsed)
     if self:IsShown() then
         if not (self.masks[1]:IsShown()) then
             self.masks[1]:Show()
-            self.masks[1]:SetPoint("TOPLEFT",self,"TOPLEFT",self.info.th,-self.info.th)
-            self.masks[1]:SetPoint("BOTTOMRIGHT",self,"BOTTOMRIGHT",-self.info.th,self.info.th)
         end
         if self.masks[2] and not(self.masks[2]:IsShown()) then
             self.masks[2]:Show()
-            self.masks[2]:SetPoint("TOPLEFT",self,"TOPLEFT",self.info.th+1,-self.info.th-1)
-            self.masks[2]:SetPoint("BOTTOMRIGHT",self,"BOTTOMRIGHT",-self.info.th-1,self.info.th+1)
         end
         if self.bg and not(self.bg:IsShown()) then
             self.bg:Show()
@@ -294,34 +274,25 @@ local  pUpdate = function(self,elapsed)
 end
 
 function lib.PixelGlow_Start(r,color,N,frequency,length,th,xOffset,yOffset,border,key,frameLevel)
-    if not r then
-        return
-    end
-    if not color then
-        color = {0.95,0.95,0.32,1}
-    end
-
-    if not(N and N>0) then
-        N = 8
-    end
+    if not r then return end
+    if not color then color = {0.95,0.95,0.32,1} end
+    if not(N and N>0) then N = 8 end
 
     local period
     if frequency then
-        if not(frequency>0 or frequency<0) then
-            period = 4
-        else
-            period = 1/frequency
-        end
+        if not(frequency>0 or frequency<0) then period = 4 else period = 1/frequency end
     else
         period = 4
     end
     
-    local width,height = r:GetSize()
-    -- 【修复：解决初次加载尺寸未完成，导致隐形的Bug】
-    if (width == 0 or height == 0) and r:GetParent() then
+    local width, height = r:GetSize()
+    -- 【防0盾】：初始启动时如果获取不到尺寸，使用强制安全底线！
+    if (not width or width == 0 or not height or height == 0) and r:GetParent() then
         width, height = r:GetParent():GetSize()
     end
-    
+    if not width or width == 0 then width = 40 end
+    if not height or height == 0 then height = 40 end
+
     length = length or math.floor((width+height)*(2/N-0.1))
     length = min(length,min(width,height))
     th = th or 1
@@ -331,34 +302,26 @@ function lib.PixelGlow_Start(r,color,N,frequency,length,th,xOffset,yOffset,borde
 
     addFrameAndTex(r,color,"_PixelGlow",key,N,xOffset,yOffset,textureList.white,{0,1,0,1},nil,frameLevel)
     local f = r["_PixelGlow"..key]
-    if not f.masks then
-        f.masks = {}
-    end
+    if not f.masks then f.masks = {} end
+    
     if not f.masks[1] then
         f.masks[1] = GlowMaskPool:Acquire()
         f.masks[1]:SetTexture(textureList.empty, "CLAMPTOWHITE","CLAMPTOWHITE")
-        -- 【修复：关闭所有的原生对齐干扰】
-        if f.masks[1].SetSnapToPixelGrid then
-            f.masks[1]:SetSnapToPixelGrid(false)
-            f.masks[1]:SetTexelSnappingBias(0)
-        end
         f.masks[1]:Show()
     end
-    f.masks[1]:SetPoint("TOPLEFT",f,"TOPLEFT",th,-th)
-    f.masks[1]:SetPoint("BOTTOMRIGHT",f,"BOTTOMRIGHT",-th,th)
+    
+    f.masks[1]:ClearAllPoints()
+    f.masks[1]:SetPoint("TOPLEFT", f, "TOPLEFT", th + 0.15, -th - 0.15)
+    f.masks[1]:SetPoint("BOTTOMRIGHT", f, "TOPLEFT", width - th - 0.15, -(height - th) + 0.15)
 
     if not(border==false) then
         if not f.masks[2] then
             f.masks[2] = GlowMaskPool:Acquire()
             f.masks[2]:SetTexture(textureList.empty, "CLAMPTOWHITE","CLAMPTOWHITE")
-            -- 【修复：关闭所有的原生对齐干扰】
-            if f.masks[2].SetSnapToPixelGrid then
-                f.masks[2]:SetSnapToPixelGrid(false)
-                f.masks[2]:SetTexelSnappingBias(0)
-            end
         end
-        f.masks[2]:SetPoint("TOPLEFT",f,"TOPLEFT",th+1,-th-1)
-        f.masks[2]:SetPoint("BOTTOMRIGHT",f,"BOTTOMRIGHT",-th-1,th+1)
+        f.masks[2]:ClearAllPoints()
+        f.masks[2]:SetPoint("TOPLEFT", f, "TOPLEFT", th + 1.15, -th - 1.15)
+        f.masks[2]:SetPoint("BOTTOMRIGHT", f, "TOPLEFT", width - th - 1.15, -(height - th - 1) + 0.15)
 
         if not f.bg then
             f.bg = GlowTexPool:Acquire()
@@ -366,11 +329,6 @@ function lib.PixelGlow_Start(r,color,N,frequency,length,th,xOffset,yOffset,borde
             f.bg:SetParent(f)
             f.bg:SetAllPoints(f)
             f.bg:SetDrawLayer("ARTWORK",6)
-            -- 【修复：关闭所有的原生对齐干扰】
-            if f.bg.SetSnapToPixelGrid then
-                f.bg:SetSnapToPixelGrid(false)
-                f.bg:SetTexelSnappingBias(0)
-            end
             f.bg:AddMaskTexture(f.masks[2])
         end
     else
@@ -420,14 +378,17 @@ lib.stopList["Pixel Glow"] = lib.PixelGlow_Stop
 
 --Autocast Glow Functions--
 local function acUpdate(self,elapsed)
-    local width,height = self:GetSize()
-    
-    -- 【修复：施法发光同样加入物理像素吸附】
-    width = PixelSnap(width)
-    height = PixelSnap(height)
-    
+    local width, height = self:GetSize()
+    if not width or width == 0 or not height or height == 0 then
+        if self:GetParent() then
+            width, height = self:GetParent():GetSize()
+        end
+        if not width or width == 0 then width = self.info.width or 40 end
+        if not height or height == 0 then height = self.info.height or 40 end
+    end
+
     if width ~= self.info.width or height ~= self.info.height then
-        if width*height == 0 then return end -- Avoid division by zero
+        if width*height == 0 then return end 
         self.info.width = width
         self.info.height = height
         self.info.perimeter = 2*(width+height)
@@ -609,7 +570,8 @@ end
 local function bgUpdate(self, elapsed)
     AnimateTexCoords(self.ants, 256, 256, 48, 48, 22, elapsed, self.throttle);
     local cooldown = self:GetParent().cooldown;
-    if(cooldown and cooldown:IsShown() and issecretvalue(cooldown:GetCooldownDuration() == false) and cooldown:GetCooldownDuration() > 3000) then
+    local duration = cooldown and cooldown:IsShown() and cooldown:GetCooldownDuration()
+    if((not issecretvalue or not issecretvalue(duration)) and duration and duration > 3000) then
         self:SetAlpha(0.5);
     else
         self:SetAlpha(1.0);
@@ -928,12 +890,6 @@ local function SetupProcGlow(f, options)
     f:SetScript("OnShow", function(self)
         if self.startAnim then
             if not self.ProcStartAnim:IsPlaying() and not self.ProcLoopAnim:IsPlaying() then
-                --[[
-to future me:
-i wish you'r ok, if you wonder where are this constants coming from, check:
-https://github.com/Gethe/wow-ui-source/blob/eb4459c679a1bd8919cad92934ea83c4f5e77e8b/Interface/FrameXML/ActionButton.lua#L816
-https://github.com/Gethe/wow-ui-source/blob/d8e8ebf572c3b28237cf83e8fc5c0583b5453a2b/Interface/FrameXML/ActionButtonTemplate.xml#L5-L14
-                ]]
                 local width, height = self:GetSize()
                 self.ProcStart:SetSize((width / 42 * 150) / 1.4, (height / 42 * 150) / 1.4)
                 self.ProcStart:Show()

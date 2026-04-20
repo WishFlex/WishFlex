@@ -23,7 +23,6 @@ local DefaultConfig = {
     Defensive = { attachToPlayer = true, width = 35, height = 28, iconGap = 1, cdFontSize = 14, cdFontColor = DEFAULT_CD_COLOR, cdPosition = "CENTER", cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackPosition = "TOP", stackXOffset = 0, stackYOffset = 7, maxPerRow = 999 },
     ExtraMonitor = { attachToPlayer = true, snapToEssential = false, width = 30, height = 25, iconGap = 1, cdFontSize = 14, cdFontColor = DEFAULT_CD_COLOR, cdPosition = "CENTER", cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackPosition = "BOTTOM", stackXOffset = 0, stackYOffset = -6, maxPerRow = 999 },
     BuffBar = { showIcon = true, iconPosition = "LEFT", width = 150, height = 24, barHeight = 24, barTexture = "Blizzard", barPosition = "CENTER", iconGap = 1, growth = "DOWN", cdFontSize = 18, cdFontColor = DEFAULT_CD_COLOR, cdPosition = "CENTER", cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackPosition = "LEFT", stackXOffset = 5, stackYOffset = 0 },
-    -- 【修复】：默认关闭 snapToResource，改为自由排版
     BuffIcon = { snapToResource = false, snapToEssential = false, width = 40, height = 35, iconGap = 1, growth = "CENTER_HORIZONTAL", cdFontSize = 14, cdFontColor = DEFAULT_CD_COLOR, cdPosition = "CENTER", cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackPosition = "TOP", stackXOffset = 0, stackYOffset = 7, maxPerRow = 999 },
     ItemBuff = { snapToBuffIcon = true, attachToPlayer = false, width = 40, height = 30, iconGap = 1, cdFontSize = 14, cdFontColor = {r=0, g=1, b=0, a=1}, cdPosition = "CENTER", cdXOffset = 0, cdYOffset = 0, stackFontSize = 14, stackFontColor = DEFAULT_STACK_COLOR, stackPosition = "BOTTOMRIGHT", stackXOffset = 0, stackYOffset = 0, maxPerRow = 999 }
 }
@@ -48,23 +47,20 @@ local function MigrateOldSettings(db)
     if db.BuffIcon then 
         db.BuffIcon.offsetX = nil; 
         db.BuffIcon.offsetY = nil 
-        -- 【强制清洗旧存档】：强行干掉旧配置中的锁定，瞬间解放微调箭头和拖拽排版
         db.BuffIcon.snapToResource = false 
     end
     if db.BuffBar then db.BuffBar.offsetX = nil; db.BuffBar.offsetY = nil end
     if db.ItemBuff and db.ItemBuff.snapToBuffIcon == nil then db.ItemBuff.snapToBuffIcon = true end
 end
 
+-- 【核心修复】：废除物理像素转化，回归纯净逻辑像素！
 function CDMod.GetOnePixelSize()
-    local screenHeight = select(2, GetPhysicalScreenSize()); if not screenHeight or screenHeight == 0 then return 1 end
-    local uiScale = UIParent:GetEffectiveScale(); if not uiScale or uiScale == 0 then return 1 end
-    return 768.0 / screenHeight / uiScale
+    return 1
 end
 
 function CDMod.PixelSnap(value)
     if not value then return 0 end
-    local onePixel = CDMod.GetOnePixelSize(); if onePixel == 0 then return value end
-    return math.floor(value / onePixel + 0.5) * onePixel
+    return value -- 取消浮点数吸附，彻底消灭GPU由于亚像素产生的取整撕裂
 end
 
 function CDMod:GetCurrentSpecID()
@@ -148,17 +144,18 @@ local function EnsureMoverExists(r, isBuff, isDefensive)
             local cx, cy = self:GetCenter()
             local pw, ph = UIParent:GetWidth(), UIParent:GetHeight()
             if cx and cy and pw and ph then
-                local xOfs = cx - pw/2
-                local yOfs = cy - ph/2
-                WF.db.movers[self:GetName()] = { point = "CENTER", relativePoint = "CENTER", xOfs = xOfs, yOfs = yOfs }
+                local saveKey = self:GetName()
+                if not WF.db.movers[saveKey] then WF.db.movers[saveKey] = {} end
+                local m = WF.db.movers[saveKey]
+                m.point = "CENTER"
+                m.relativePoint = "CENTER"
+                m.xOfs = cx - pw/2
+                m.yOfs = cy - ph/2
             end
             
             if isDefensive and WF.db.cooldownCustom and WF.db.cooldownCustom.Defensive then WF.db.cooldownCustom.Defensive.attachToPlayer = false end
             if r == "ExtraMonitor" and WF.db.cooldownCustom and WF.db.cooldownCustom.ExtraMonitor then WF.db.cooldownCustom.ExtraMonitor.attachToPlayer = false end
-            
-            if r == "ItemBuff" and WF.db.cooldownCustom and WF.db.cooldownCustom.ItemBuff then 
-                WF.db.cooldownCustom.ItemBuff.snapToBuffIcon = false
-            end
+            if r == "ItemBuff" and WF.db.cooldownCustom and WF.db.cooldownCustom.ItemBuff then WF.db.cooldownCustom.ItemBuff.snapToBuffIcon = false end
             
             CDMod:MarkLayoutDirty(true) 
         end)
@@ -171,15 +168,12 @@ local function EnsureMoverExists(r, isBuff, isDefensive)
             elseif button == "RightButton" then
                 if isDefensive and WF.db.cooldownCustom and WF.db.cooldownCustom.Defensive then
                     WF.db.cooldownCustom.Defensive.attachToPlayer = not WF.db.cooldownCustom.Defensive.attachToPlayer
-                    print("|cff00ccff[WishFlex]|r 防御技能组吸附头像已" .. (WF.db.cooldownCustom.Defensive.attachToPlayer and "|cff00ff00开启|r" or "|cffff0000关闭|r"))
                     CDMod:MarkLayoutDirty(true)
                 elseif r == "ExtraMonitor" and WF.db.cooldownCustom and WF.db.cooldownCustom.ExtraMonitor then
                     WF.db.cooldownCustom.ExtraMonitor.attachToPlayer = not WF.db.cooldownCustom.ExtraMonitor.attachToPlayer
-                    print("|cff00ccff[WishFlex]|r 额外监控组吸附头像已" .. (WF.db.cooldownCustom.ExtraMonitor.attachToPlayer and "|cff00ff00开启|r" or "|cffff0000关闭|r"))
                     CDMod:MarkLayoutDirty(true)
                 elseif r == "ItemBuff" and WF.db.cooldownCustom and WF.db.cooldownCustom.ItemBuff then
                     WF.db.cooldownCustom.ItemBuff.snapToBuffIcon = not WF.db.cooldownCustom.ItemBuff.snapToBuffIcon
-                    print("|cff00ccff[WishFlex]|r 物品/药水组自动吸附增益组已" .. (WF.db.cooldownCustom.ItemBuff.snapToBuffIcon and "|cff00ff00开启|r" or "|cffff0000关闭|r"))
                     CDMod:MarkLayoutDirty(true)
                 end
             end
@@ -409,7 +403,7 @@ function CDMod.ResolveActualSpellID(info, isAura)
 end
 
 function CDMod.GetOverrideData(info, dbO, isAura, keyName)
-    if not dbO or type(info) ~= "table" then return nil end
+    if not dbO or not next(dbO) or type(info) ~= "table" then return nil end
     local prefix = isAura and "BUFF_" or "CD_"
     
     local function CheckID(checkID)
@@ -449,7 +443,7 @@ function CDMod.ApplySpellOverrides(frame)
     if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.enable == false then return end
     if not frame then return end
     local info = frame.cooldownInfo or (frame.GetCooldownInfo and frame:GetCooldownInfo())
-    if not info and frame.isExtraMonitor then info = {spellID = frame.id} end
+    if not info and frame.isExtraMonitor then info = {spellID = frame.dbKey or frame.spellID or frame.id} end
     local isAura = frame.wishFlexCategory and (frame.wishFlexCategory == "BuffIcon" or frame.wishFlexCategory == "BuffBar" or string.sub(frame.wishFlexCategory, 1, 13) == "CustomBuffRow")
     
     local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
@@ -606,7 +600,7 @@ end
 
 local function GetSortVal(f)
     local info = f.cooldownInfo or (f.GetCooldownInfo and f:GetCooldownInfo())
-    if not info and f.isExtraMonitor then info = {spellID = f.id} end
+    if not info and f.isExtraMonitor then info = {spellID = f.dbKey or f.spellID or f.id} end
     local isAura = f.wishFlexCategory and (f.wishFlexCategory == "BuffIcon" or f.wishFlexCategory == "BuffBar" or string.sub(f.wishFlexCategory, 1, 13) == "CustomBuffRow")
     
     local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
@@ -620,9 +614,11 @@ local function SortByLayoutIndex(a, b)
     local vA = GetSortVal(a)
     local vB = GetSortVal(b)
     if vA == vB then
-        local idA = a.isExtraMonitor and a.id or (a.cooldownInfo and (a.cooldownInfo.overrideSpellID or a.cooldownInfo.spellID)) or 0
-        local idB = b.isExtraMonitor and b.id or (b.cooldownInfo and (b.cooldownInfo.overrideSpellID or b.cooldownInfo.spellID)) or 0
-        return idA < idB
+        local idA = a.isExtraMonitor and (a.spellID or a.id) or (a.cooldownInfo and (a.cooldownInfo.overrideSpellID or a.cooldownInfo.spellID)) or 0
+        local idB = b.isExtraMonitor and (b.spellID or b.id) or (b.cooldownInfo and (b.cooldownInfo.overrideSpellID or b.cooldownInfo.spellID)) or 0
+        local numA, numB = tonumber(idA) or 0, tonumber(idB) or 0
+        if numA == numB then return tostring(idA) < tostring(idB) end
+        return numA < numB
     end
     return vA < vB 
 end
@@ -733,8 +729,10 @@ function CDMod:BroadcastWidth()
             if WF.ExtraMonitorAPI and WF.ExtraMonitorAPI.FramePool then
                 for _, f in pairs(WF.ExtraMonitorAPI.FramePool) do
                     if f:IsShown() and f.isExtraMonitor then
-                        local sidStr = tostring(f.id)
-                        local info = {spellID = f.id, isExtraMonitor = true}
+                        if not f._emTempInfo then f._emTempInfo = { isExtraMonitor = true } end
+                        f._emTempInfo.spellID = f.dbKey or f.spellID or f.id
+                        local info = f._emTempInfo
+                        
                         local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
                         local oCat = CDMod.GetOverrideData(info, dbO, false, "category")
                         local tCat = oCat or "ExtraMonitor"
@@ -764,11 +762,17 @@ function CDMod:ApplySavedNativePositions()
         local viewer = _G[vName]
         if viewer and WF.db.movers[vName] then
             local p = WF.db.movers[vName]
-            viewer._isRestoring = true
-            viewer:SetMovable(true)
-            viewer:ClearAllPoints()
-            viewer:SetPoint(p.point, UIParent, p.relativePoint, p.xOfs, p.yOfs)
-            viewer._isRestoring = false
+            
+            local _, relTo, _, cx, cy = viewer:GetPoint()
+            cx = cx or 0
+            cy = cy or 0
+            if relTo ~= UIParent or math.abs(cx - p.xOfs) > 0.5 or math.abs(cy - p.yOfs) > 0.5 then
+                viewer._isRestoring = true
+                viewer:SetMovable(true)
+                viewer:ClearAllPoints()
+                viewer:SetPoint(p.point, UIParent, p.relativePoint, p.xOfs, p.yOfs)
+                viewer._isRestoring = false
+            end
         end
     end
 
@@ -868,7 +872,10 @@ function CDMod:ForceBuffsLayout()
     if WF.ExtraMonitorAPI and WF.ExtraMonitorAPI.FramePool then
         for _, f in pairs(WF.ExtraMonitorAPI.FramePool) do
             if f:IsShown() and f.isExtraMonitor then
-                local info = {spellID = f.id, isExtraMonitor = true}
+                if not f._emTempInfo then f._emTempInfo = { isExtraMonitor = true } end
+                f._emTempInfo.spellID = f.dbKey or f.spellID or f.id
+                local info = f._emTempInfo
+                
                 local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
                 local oCat = CDMod.GetOverrideData(info, dbO, false, "category")
                 if oCat then
@@ -992,7 +999,10 @@ function CDMod:UpdateAllLayouts()
     if WF.ExtraMonitorAPI and WF.ExtraMonitorAPI.FramePool then
         for _, f in pairs(WF.ExtraMonitorAPI.FramePool) do
             if f:IsShown() and f.isExtraMonitor then
-                local info = {spellID = f.id, isExtraMonitor = true}
+                if not f._emTempInfo then f._emTempInfo = { isExtraMonitor = true } end
+                f._emTempInfo.spellID = f.dbKey or f.spellID or f.id
+                local info = f._emTempInfo
+                
                 local tCat = "ExtraMonitor" 
                 local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
                 local oCat = CDMod.GetOverrideData(info, dbO, false, "category")
@@ -1127,7 +1137,13 @@ local function InitCooldownCustom()
                     if cx and cy then
                         local pw, ph = UIParent:GetWidth(), UIParent:GetHeight()
                         if not WF.db.movers then WF.db.movers = {} end
-                        WF.db.movers[self:GetName()] = { point = "CENTER", relativePoint = "CENTER", xOfs = cx - pw/2, yOfs = cy - ph/2 }
+                        local saveKey = self:GetName()
+                        if not WF.db.movers[saveKey] then WF.db.movers[saveKey] = {} end
+                        local m = WF.db.movers[saveKey]
+                        m.point = "CENTER"
+                        m.relativePoint = "CENTER"
+                        m.xOfs = cx - pw/2
+                        m.yOfs = cy - ph/2
                     end
                 end
             end)

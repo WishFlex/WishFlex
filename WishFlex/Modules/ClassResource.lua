@@ -21,7 +21,7 @@ CR.currentSpecID = 0
 CR._minColorObj = CreateColor and CreateColor(1,1,1,1) or nil
 CR._maxColorObj = CreateColor and CreateColor(1,1,1,1) or nil
 CR._defaultColorObj = CreateColor and CreateColor(1,1,1,1) or nil
-CR._tempWColor = {r=1, g=1, b=1, a=1} -- 【极限优化 2】：提供静态的白色表复用，代替 {} 动态分配
+CR._tempWColor = {r=1, g=1, b=1, a=1}
 local DEF_W_COL = {r=1, g=1, b=1, a=1}
 
 local DEFAULT_COLOR = {r=1, g=1, b=1}
@@ -33,6 +33,9 @@ CR.POWER_COLORS = POWER_COLORS
 local PLAYER_CLASS_COLOR = DEFAULT_COLOR
 local cc_cache = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[playerClass]
 if cc_cache then PLAYER_CLASS_COLOR = {r=cc_cache.r, g=cc_cache.g, b=cc_cache.b} end
+
+-- 【设置 DK 默认符文能量条为职业色】
+POWER_COLORS[6] = PLAYER_CLASS_COLOR
 
 local DEF_VIGOR_COLOR = {r=0.2, g=0.7, b=1}
 local DEF_WHIRLING_COLOR = {r=1, g=0.8, b=0}
@@ -150,7 +153,12 @@ function CR.GetClassResourceData()
         end
         return curr, maxShards, PLAYER_CLASS_COLOR, 0
     elseif playerClass == "EVOKER" then return UnitPower("player", 19), UnitPowerMax("player", 19), PLAYER_CLASS_COLOR, 0
-    elseif playerClass == "DEATHKNIGHT" then return 0, UnitPowerMax("player", 5), PLAYER_CLASS_COLOR, 0
+    -- 【为 DK 各专精的主资源条（符文）设置独立默认颜色】
+    elseif playerClass == "DEATHKNIGHT" then 
+        local runeCol = {r=1, g=0.2, b=0.2} -- 默认/鲜血: 红色
+        if spec == 251 then runeCol = {r=0, g=0.8, b=1} -- 冰霜: 蓝色
+        elseif spec == 252 then runeCol = {r=0.2, g=1, b=0.2} end -- 邪恶: 绿色
+        return 0, UnitPowerMax("player", 5), runeCol, 0
     elseif playerClass == "MAGE" and spec == 62 then return UnitPower("player", 16), 4, PLAYER_CLASS_COLOR, 0
     elseif playerClass == "MONK" and spec == 268 then 
         local stagger = UnitStagger("player") or 0; local maxHealth = UnitHealthMax("player") or 1
@@ -577,6 +585,7 @@ function CR:DoStackLayout()
             item.frame.isForceHidden = false; if not self.sleepMode or db.fadeOOC == false then item.frame:Show() end
             if not item.cfg.independent then
                 stackDict[item.key] = { frame = item.frame, height = tonumber(item.cfg.height) or 10, xOff = 0, yOff = 0 }; activeKeys[item.key] = true
+                if item.frame.statusBar then pcall(function() item.frame.statusBar:SetOrientation("HORIZONTAL") end) end
             elseif not item.frame._isDragging then
                 item.frame:ClearAllPoints()
                 item.frame:SetPoint("CENTER", item.frame.myAnchor, "CENTER", CR.PixelSnap(item.cfg.barXOffset or 0), CR.PixelSnap(item.cfg.barYOffset or 0))
@@ -629,6 +638,8 @@ function CR:DoStackLayout()
             
             if not isInd then
                 stackDict[key] = { frame = f, height = f.calcHeight, xOff = 0, yOff = 0 }; activeKeys[key] = true
+                if f.chargeBar then pcall(function() f.chargeBar:SetOrientation("HORIZONTAL") end) end
+                if f.refreshCharge then pcall(function() f.refreshCharge:SetOrientation("HORIZONTAL") end) end
             elseif not f._isDragging then
                 f:ClearAllPoints()
                 f:SetPoint("CENTER", f.myAnchor, "CENTER", CR.PixelSnap(f.cfg.barXOffset or 0), CR.PixelSnap(f.cfg.barYOffset or 0))
@@ -954,7 +965,8 @@ function CR:DynamicTick()
             local matchedColor = CR.GetDynamicBarColor(CR.DecodeSecretValue(rawCurr, rawMax), rawMax, specCfg.class, cColor)
             local sC = matchedColor.startC or DEF_W_COL
             local eC = matchedColor.endC or DEF_W_COL
-            local orient = (specCfg.class.orientation == "VERTICAL") and "VERTICAL" or "HORIZONTAL"
+            -- 【终极修复：渐变方向必须依据是否为独立排版状态进行联合判断】
+            local orient = (specCfg.class.independent and specCfg.class.orientation == "VERTICAL") and "VERTICAL" or "HORIZONTAL"
             if CR._minColorObj and CR._maxColorObj then 
                 CR._minColorObj:SetRGBA(sC.r, sC.g, sC.b, sC.a or 1)
                 CR._maxColorObj:SetRGBA(eC.r, eC.g, eC.b, eC.a or 1)
@@ -963,7 +975,8 @@ function CR:DynamicTick()
                 tex:SetGradient(orient, sC.r,sC.g,sC.b,sC.a or 1, eC.r,eC.g,eC.b,eC.a or 1) 
             end
         elseif tex then
-            local orient = (specCfg.class.orientation == "VERTICAL") and "VERTICAL" or "HORIZONTAL"
+            -- 【终极修复：单色渐变清除滤镜的方向也必须同步修复】
+            local orient = (specCfg.class.independent and specCfg.class.orientation == "VERTICAL") and "VERTICAL" or "HORIZONTAL"
             if CR._defaultColorObj then 
                 CR._defaultColorObj:SetRGBA(cColor.r, cColor.g, cColor.b, cColor.a or 1)
                 tex:SetGradient(orient, CR._defaultColorObj, CR._defaultColorObj)
