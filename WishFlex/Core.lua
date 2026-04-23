@@ -588,7 +588,7 @@ function WF:ToggleMovers()
     WF:SetEditMode(not WF.MoversUnlocked)
 end
 
-SLASH_WISHFLEXMOVER1 = "/wfmove"
+SLASH_WISHFLEXMOVER1 = " "
 SlashCmdList["WISHFLEXMOVER"] = function() WF:ToggleMovers() end
 
 function WF:OpenUI()
@@ -720,7 +720,7 @@ local function InitializeAddon()
         end
     end
     
-    print("|cff00ffcc[WishFlex]|r 已加载模块: 输入 /wf 打开设置，/wfmove 解锁锚点")
+    print("|cff00ffcc[WishFlex]|r 已加载模块: 输入 /wf 打开设置")
 
     if EditModeManagerFrame then
         if type(EditModeManagerFrame.EnterEditMode) == "function" then

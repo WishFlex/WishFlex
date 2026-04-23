@@ -1,4 +1,4 @@
-## Interface: 120001
+## Interface: 120005
 ## Title: WishFlex Options
 ## Notes: WishFlex 设置面板 (按需加载模块)
 ## Dependencies: WishFlex

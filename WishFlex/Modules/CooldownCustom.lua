@@ -1153,6 +1153,14 @@ local function InitCooldownCustom()
                     CDMod:MarkLayoutDirty(false)
                 end)
             end
+            if viewer.itemFramePool then
+                hooksecurefunc(viewer.itemFramePool, "Acquire", function()
+                    CDMod:MarkLayoutDirty(true)
+                end)
+                hooksecurefunc(viewer.itemFramePool, "Release", function()
+                    CDMod:MarkLayoutDirty(true)
+                end)
+            end
         end
     end
 
@@ -1167,10 +1175,29 @@ local function InitCooldownCustom()
         C_Timer.After(1.0, function() CDMod:MarkLayoutDirty(true) end)
     end)
 
-    WF:RegisterEvent("SPELLS_CHANGED", function()
+-- ▼▼▼ 替换为这段新逻辑 ▼▼▼
+    local function RefreshOnTalentChange()
         if WF.db.cooldownCustom.enable == false then return end 
+        
+        -- 立即刷新一次
         CDMod:MarkLayoutDirty(true)
-    end)
+        
+        -- 阶梯式延迟唤醒：确保暴雪的底层 API 和动画完全结束后，强制插件捕获新生成的天赋技能
+        C_Timer.After(0.5, function() CDMod:MarkLayoutDirty(true) end)
+        C_Timer.After(1.5, function() CDMod:MarkLayoutDirty(true) end)
+        C_Timer.After(3.0, function() CDMod:MarkLayoutDirty(true) end)
+        
+        -- 针对 ExtraMonitor (额外监控，例如邪能破坏者)，同步发送强制更新指令
+        if WF.ExtraMonitorAPI and type(WF.ExtraMonitorAPI.TriggerUpdate) == "function" then
+            C_Timer.After(0.5, function() WF.ExtraMonitorAPI:TriggerUpdate() end)
+            C_Timer.After(1.5, function() WF.ExtraMonitorAPI:TriggerUpdate() end)
+        end
+    end
+
+    WF:RegisterEvent("SPELLS_CHANGED", RefreshOnTalentChange)
+    WF:RegisterEvent("TRAIT_CONFIG_UPDATED", RefreshOnTalentChange) -- 专职监听天赋树的变更事件
+    WF:RegisterEvent("PLAYER_TALENT_UPDATE", RefreshOnTalentChange)
+    -- ▲▲▲ 替换结束 ▲▲▲
     
     WF:RegisterEvent("UNIT_PET", function(unit)
         if unit == "player" and WF.db.cooldownCustom.enable ~= false then 
