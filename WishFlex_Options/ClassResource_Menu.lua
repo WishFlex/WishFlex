@@ -53,18 +53,18 @@ local function BuildTextOpts(title, cfgObj, cb, hasText, hasTimer)
     local childs = {}
     if hasText then
         table.insert(childs, { type = "toggle", key = "textEnable", db = cfgObj, text = L["Enable Main Text"] or "启用主文本(层数/数值)", callback = cb })
-        table.insert(childs, { type = "dropdown", key = "textAnchor", db = cfgObj, text = L["Main Text Anchor"] or "主文本锚点", options = { {text=L["CENTER"] or "居中",value="CENTER"}, {text=L["LEFT"] or "靠左",value="LEFT"}, {text=L["RIGHT"] or "靠右",value="RIGHT"} }, callback = cb })
+        table.insert(childs, { type = "dropdown", key = "textAnchor", db = cfgObj, text = L["Main Text Anchor"] or "主文本锚点", options = { {text=L["TOPLEFT"] or "左上",value="TOPLEFT"}, {text=L["TOP"] or "上方",value="TOP"}, {text=L["TOPRIGHT"] or "右上",value="TOPRIGHT"}, {text=L["LEFT"] or "靠左",value="LEFT"}, {text=L["CENTER"] or "居中",value="CENTER"}, {text=L["RIGHT"] or "靠右",value="RIGHT"}, {text=L["BOTTOMLEFT"] or "左下",value="BOTTOMLEFT"}, {text=L["BOTTOM"] or "下方",value="BOTTOM"}, {text=L["BOTTOMRIGHT"] or "右下",value="BOTTOMRIGHT"} }, callback = cb })
         table.insert(childs, { type = "slider", key = "xOffset", db = cfgObj, text = L["Main Text X Offset"] or "主文本X偏移", min=-200, max=200, step=1, callback = cb })
         table.insert(childs, { type = "slider", key = "yOffset", db = cfgObj, text = L["Main Text Y Offset"] or "主文本Y偏移", min=-100, max=100, step=1, callback = cb })
     end
     if hasTimer then
         table.insert(childs, { type = "toggle", key = "timerEnable", db = cfgObj, text = L["Enable Timer Text"] or "启用计时文本", callback = cb })
-        table.insert(childs, { type = "dropdown", key = "timerAnchor", db = cfgObj, text = L["Timer Text Anchor"] or "计时文本锚点", options = { {text=L["CENTER"] or "居中",value="CENTER"}, {text=L["LEFT"] or "靠左",value="LEFT"}, {text=L["RIGHT"] or "靠右",value="RIGHT"} }, callback = cb })
+        table.insert(childs, { type = "dropdown", key = "timerAnchor", db = cfgObj, text = L["Timer Text Anchor"] or "计时文本锚点", options = { {text=L["TOPLEFT"] or "左上",value="TOPLEFT"}, {text=L["TOP"] or "上方",value="TOP"}, {text=L["TOPRIGHT"] or "右上",value="TOPRIGHT"}, {text=L["LEFT"] or "靠左",value="LEFT"}, {text=L["CENTER"] or "居中",value="CENTER"}, {text=L["RIGHT"] or "靠右",value="RIGHT"}, {text=L["BOTTOMLEFT"] or "左下",value="BOTTOMLEFT"}, {text=L["BOTTOM"] or "下方",value="BOTTOM"}, {text=L["BOTTOMRIGHT"] or "右下",value="BOTTOMRIGHT"} }, callback = cb })
         table.insert(childs, { type = "slider", key = "timerXOffset", db = cfgObj, text = L["Timer Text X Offset"] or "计时文本X偏移", min=-200, max=200, step=1, callback = cb })
         table.insert(childs, { type = "slider", key = "timerYOffset", db = cfgObj, text = L["Timer Text Y Offset"] or "计时文本Y偏移", min=-100, max=100, step=1, callback = cb })
     end
     table.insert(childs, { type = "slider", key = "fontSize", db = cfgObj, text = L["Font Size"] or "字体大小", min=1, max=64, step=1, callback = cb })
-    table.insert(childs, { type = "color", key = "color", db = cfgObj, text = L["Text Color"] or "文本颜色", callback = cb })
+    table.insert(childs, { type = "color", key = "textColor", db = cfgObj, text = L["Text Color"] or "文本颜色", callback = cb })
     return { type = "group", key = "sb_txt_"..title, text = (L["Text Layout"] or "文本排版") .. " - " .. title, childs = childs }
 end
 
@@ -304,7 +304,6 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
                 table.insert(menuItems, { text = L["Gradient Color Settings"] or "层数渐变颜色设置", isAction = true, action = function() CR.Sandbox.popupSubMenu = "gradient"; WF.UI:RefreshCurrentPanel() end })
                 table.insert(menuItems, { text = L["Stack Color Settings"] or "多阶段突变颜色设置", isAction = true, action = function() CR.Sandbox.popupSubMenu = "threshold"; WF.UI:RefreshCurrentPanel() end })
             else
-                -- 【核心修复】：为能量条和其它条添加“数值颜色突变”入口
                 if target == "power" or target == "mana" then
                     table.insert(menuItems, { text = L["Value Color Settings"] or "数值突变颜色设置", isAction = true, action = function() CR.Sandbox.popupSubMenu = "threshold"; WF.UI:RefreshCurrentPanel() end })
                 end
@@ -346,6 +345,8 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
                     table.insert(childs, { type = "toggle", key = "useCustomColor", db = cfgDB, text = L["Enable Independent Color"] or "启用独立颜色", callback = handleCallback })
                     table.insert(childs, { type = "color", key = "customColor", db = cfgDB, text = L["Foreground Color"] or "独立前景色", callback = handleCallback })
                 end
+                table.insert(childs, { type = "toggle", key = "useChargeColor", db = cfgDB, text = L["Enable Charge Color"] or "启用充能阶段颜色(未就绪时)", callback = handleCallback })
+                table.insert(childs, { type = "color", key = "chargeColor", db = cfgDB, text = L["Charge Color"] or "充能阶段颜色", callback = function() cfgDB.useChargeColor = true; handleCallback() end })
                 
                 table.insert(childs, { type = "toggle", key = "useCustomBgTexture", db = cfgDB, text = L["Enable Independent Background Texture"] or "启用独立背景材质", callback = handleCallback })
                 table.insert(childs, { type = "dropdown", key = "bgTexture", db = cfgDB, text = L["Independent Background Texture"] or "背景材质选择", options = GetTextureOptions(), callback = handleCallback })
@@ -354,10 +355,14 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
                 
                 py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, {{type="group", key="opts_b", text=L["Basic Appearance"] or "基础外观设定", childs=childs}}, handleCallback)
             
-            elseif subMenu == "text" then
+            elseif subMenu == "text_main" then
                 local tOpts = BuildTextOpts(titleMap[target] or target, cfgDB, handleCallback, true, false)
                 py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, {tOpts}, handleCallback)
             
+            elseif subMenu == "text_timer" then
+                local tOpts = BuildTextOpts(titleMap[target] or target, cfgDB, handleCallback, false, true)
+                py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, {tOpts}, handleCallback)
+
             elseif subMenu == "gradient" then
                 local childs = BuildGradientOpts(cfgDB, handleCallback)
                 py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, {childs}, handleCallback)
@@ -378,25 +383,6 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
                 }
                 py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, {{type="group", key="opts_lines", text=L["Threshold Lines"] or "刻度线设置", childs=childs}}, handleCallback)
             end
-        end
-
-    elseif mode == "TEXT" then
-        popup:Show()
-        popup.titleText:SetText((titleMap[target] or target) .. " - " .. (L["Text Layout"] or "文本设置"))
-        py = -10
-        local cfgDB = nil
-        local isBrewmaster = (playerClass == "MONK" and tempDB.spec == 268)
-
-        if target == "power" then cfgDB = specCfg.power
-        elseif target == "class" and isBrewmaster then cfgDB = specCfg.class
-        elseif target == "mana" then cfgDB = specCfg.mana
-        end
-
-        if cfgDB then
-            local tOpts = BuildTextOpts(titleMap[target] or target, cfgDB, handleCallback, true, false)
-            py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, {tOpts}, handleCallback)
-        else
-            popup.titleText:SetText(L["Monitor Not Found"] or "该模块没有文本设置")
         end
 
     elseif mode == "ADD_MONITOR" then
@@ -481,23 +467,21 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
             local targetDB = st.cat == "skill" and wmDB.skills or wmDB.buffs; 
             local isTextMode = (st.displayMode == "text")
             
-            local newCfg = { 
+local newCfg = { 
                 enable = true, specID = tempDB.spec, displayMode = st.displayMode or "bar", 
                 alwaysShow = false, color = {r=0,g=0.8,b=1,a=1}, hideOriginal = false, 
                 independent = isTextMode, fontSize = isTextMode and 20 or nil, 
                 height = 10, width = 250, useCustomBgColor = false, bgColor = {r=0,g=0,b=0,a=0.5}, 
-                textEnable = not isTextMode, 
-                timerEnable = true 
+                textEnable = not isTextMode, textAnchor = "LEFT", 
+                timerEnable = true, timerAnchor = "RIGHT" 
             }
             
             if st.cat == "skill" then 
-                newCfg.trackType = st.type; newCfg.color = {r=1,g=0.5,b=0,a=1}; newCfg.timerAnchor = "CENTER"
+                newCfg.trackType = st.type; newCfg.color = {r=1,g=0.5,b=0,a=1}
             else 
                 newCfg.mode = st.type; newCfg.color = {r=0,g=0.8,b=1,a=1}; 
-                if st.type == "stack" then newCfg.maxStacks = st.maxStacks or 5 end; 
-                newCfg.timerAnchor = "CENTER" 
+                if st.type == "stack" then newCfg.maxStacks = st.maxStacks or 5 end
             end
-            
             local targetSaveKey = st.spell
             if isTextMode then
                 targetSaveKey = st.spell .. "_TXT"
@@ -535,7 +519,7 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
             
             if not CR.Sandbox.popupSubMenu then
                 if mode == "EDIT_MONITOR_TEXT" then
-                    CR.Sandbox.popupSubMenu = "text"
+                    CR.Sandbox.popupSubMenu = "text_timer"
                 end
             end
 
@@ -555,7 +539,6 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
                 if cat == "buff" and cfg.mode == "stack" then hasStacks = true end
                 if cat == "skill" and cfg.trackType == "charge" then hasStacks = true end
 
-                -- 【核心修复】：不论是否是层数，全部放出“渐变颜色设置”选项，时间流逝也会有渐变效果！
                 table.insert(menuItems, { text = L["Gradient Color Settings"] or "渐变颜色设置", isAction = true, action = function() CR.Sandbox.popupSubMenu = "gradient"; WF.UI:RefreshCurrentPanel() end })
 
                 if hasStacks then
@@ -627,36 +610,25 @@ function CR.Menu:RenderPopupContent(popup, mode, target, tempDB, specCfg, handle
                     
                     py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, {{type="group", key="mon_b", text=L["Basic Appearance"] or "基础外观设定", childs=childs}}, handleCallback)
 
-elseif subMenu == "text" then
+                elseif subMenu == "text_main" then
                     local childs = {}
-                    -- 检查该监控是否是层数/充能模式
-                    local isStackMode = (cfg.mode == "stack" or cfg.trackType == "charge")
-                    
-                    -- 如果是层数模式，把主文本(层数)的控制项加入菜单
-                    if isStackMode then
-                        table.insert(childs, { type = "toggle", key = "textEnable", db = cfg, text = L["Enable Main Text"] or "启用主文本(层数/数值)", callback = handleCallback })
-                        table.insert(childs, { type = "dropdown", key = "textAnchor", db = cfg, text = L["Main Text Anchor"] or "主文本锚点", options = {
-                            {text=L["TOPLEFT"] or "左上",value="TOPLEFT"}, {text=L["TOP"] or "上方",value="TOP"}, {text=L["TOPRIGHT"] or "右上",value="TOPRIGHT"},
-                            {text=L["LEFT"] or "靠左",value="LEFT"}, {text=L["CENTER"] or "居中",value="CENTER"}, {text=L["RIGHT"] or "靠右",value="RIGHT"},
-                            {text=L["BOTTOMLEFT"] or "左下",value="BOTTOMLEFT"}, {text=L["BOTTOM"] or "下方",value="BOTTOM"}, {text=L["BOTTOMRIGHT"] or "右下",value="BOTTOMRIGHT"}
-                        }, callback = handleCallback })
-                        table.insert(childs, { type = "slider", key = "xOffset", db = cfg, text = L["Main Text X Offset"] or "主文本X轴偏移", min=-200, max=200, step=1, callback = handleCallback })
-                        table.insert(childs, { type = "slider", key = "yOffset", db = cfg, text = L["Main Text Y Offset"] or "主文本Y轴偏移", min=-100, max=100, step=1, callback = handleCallback })
-                    end
-
-                    -- 原有的计时文本控制项
-                    table.insert(childs, { type = "toggle", key = "timerEnable", db = cfg, text = L["Enable Timer Text"] or "启用计时文本", callback = handleCallback })
-                    table.insert(childs, { type = "dropdown", key = "timerAnchor", db = cfg, text = L["Timer Text Anchor"] or "计时文本锚点", options = {
-                        {text=L["TOPLEFT"] or "左上",value="TOPLEFT"}, {text=L["TOP"] or "上方",value="TOP"}, {text=L["TOPRIGHT"] or "右上",value="TOPRIGHT"},
-                        {text=L["LEFT"] or "靠左",value="LEFT"}, {text=L["CENTER"] or "居中",value="CENTER"}, {text=L["RIGHT"] or "靠右",value="RIGHT"},
-                        {text=L["BOTTOMLEFT"] or "左下",value="BOTTOMLEFT"}, {text=L["BOTTOM"] or "下方",value="BOTTOM"}, {text=L["BOTTOMRIGHT"] or "右下",value="BOTTOMRIGHT"}
-                    }, callback = handleCallback })
+                    table.insert(childs, { type = "toggle", key = "textEnable", db = cfg, text = L["Enable Main Text"] or "启用主文本(层数/数值)", callback = handleCallback })
+                    table.insert(childs, { type = "dropdown", key = "textAnchor", db = cfg, text = L["Main Text Anchor"] or "主文本锚点", options = { {text=L["TOPLEFT"] or "左上",value="TOPLEFT"}, {text=L["TOP"] or "上方",value="TOP"}, {text=L["TOPRIGHT"] or "右上",value="TOPRIGHT"}, {text=L["LEFT"] or "靠左",value="LEFT"}, {text=L["CENTER"] or "居中",value="CENTER"}, {text=L["RIGHT"] or "靠右",value="RIGHT"}, {text=L["BOTTOMLEFT"] or "左下",value="BOTTOMLEFT"}, {text=L["BOTTOM"] or "下方",value="BOTTOM"}, {text=L["BOTTOMRIGHT"] or "右下",value="BOTTOMRIGHT"} }, callback = handleCallback })
+                    table.insert(childs, { type = "slider", key = "xOffset", db = cfg, text = L["Main Text X Offset"] or "主文本X轴偏移", min=-200, max=200, step=1, callback = handleCallback })
+                    table.insert(childs, { type = "slider", key = "yOffset", db = cfg, text = L["Main Text Y Offset"] or "主文本Y轴偏移", min=-100, max=100, step=1, callback = handleCallback })
                     table.insert(childs, { type = "slider", key = "fontSize", db = cfg, text = L["Font Size"] or "字体大小", min = 1, max = 64, step = 1, callback = handleCallback })
+                    table.insert(childs, { type = "color", key = "textColor", db = cfg, text = L["Text Color"] or "文本颜色", callback = handleCallback })
+                    py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, {{type="group", key="mon_t_main", text=L["Main Text Layout"] or "主文本排版设定", childs=childs}}, handleCallback)
+
+                elseif subMenu == "text_timer" then
+                    local childs = {}
+                    table.insert(childs, { type = "toggle", key = "timerEnable", db = cfg, text = L["Enable Timer Text"] or "启用计时文本", callback = handleCallback })
+                    table.insert(childs, { type = "dropdown", key = "timerAnchor", db = cfg, text = L["Timer Text Anchor"] or "计时文本锚点", options = { {text=L["TOPLEFT"] or "左上",value="TOPLEFT"}, {text=L["TOP"] or "上方",value="TOP"}, {text=L["TOPRIGHT"] or "右上",value="TOPRIGHT"}, {text=L["LEFT"] or "靠左",value="LEFT"}, {text=L["CENTER"] or "居中",value="CENTER"}, {text=L["RIGHT"] or "靠右",value="RIGHT"}, {text=L["BOTTOMLEFT"] or "左下",value="BOTTOMLEFT"}, {text=L["BOTTOM"] or "下方",value="BOTTOM"}, {text=L["BOTTOMRIGHT"] or "右下",value="BOTTOMRIGHT"} }, callback = handleCallback })
                     table.insert(childs, { type = "slider", key = "timerXOffset", db = cfg, text = L["Timer Text X Offset"] or "计时文本X轴偏移", min=-200, max=200, step=1, callback = handleCallback })
                     table.insert(childs, { type = "slider", key = "timerYOffset", db = cfg, text = L["Timer Text Y Offset"] or "计时文本Y轴偏移", min=-100, max=100, step=1, callback = handleCallback })
+                    table.insert(childs, { type = "slider", key = "fontSize", db = cfg, text = L["Font Size"] or "字体大小", min = 1, max = 64, step = 1, callback = handleCallback })
                     table.insert(childs, { type = "color", key = "textColor", db = cfg, text = L["Text Color"] or "文本颜色", callback = handleCallback })
-
-                    py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, {{type="group", key="mon_t", text=L["Text Layout"] or "文本排版设定", childs=childs}}, handleCallback)
+                    py = WF.UI:RenderOptionsGroup(popup.scrollChild, 5, py, popW, {{type="group", key="mon_t_timer", text=L["Timer Text Layout"] or "计时文本排版设定", childs=childs}}, handleCallback)
                 
                 elseif subMenu == "gradient" then
                     local gOpts = BuildGradientOpts(cfg, handleCallback)

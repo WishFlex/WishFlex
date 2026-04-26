@@ -34,7 +34,6 @@ local PLAYER_CLASS_COLOR = DEFAULT_COLOR
 local cc_cache = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[playerClass]
 if cc_cache then PLAYER_CLASS_COLOR = {r=cc_cache.r, g=cc_cache.g, b=cc_cache.b} end
 
--- 【设置 DK 默认符文能量条为职业色】
 POWER_COLORS[6] = PLAYER_CLASS_COLOR
 
 local DEF_VIGOR_COLOR = {r=0.2, g=0.7, b=1}
@@ -153,12 +152,16 @@ function CR.GetClassResourceData()
         end
         return curr, maxShards, PLAYER_CLASS_COLOR, 0
     elseif playerClass == "EVOKER" then return UnitPower("player", 19), UnitPowerMax("player", 19), PLAYER_CLASS_COLOR, 0
-    -- 【为 DK 各专精的主资源条（符文）设置独立默认颜色】
     elseif playerClass == "DEATHKNIGHT" then 
         local runeCol = {r=1, g=0.2, b=0.2} -- 默认/鲜血: 红色
         if spec == 251 then runeCol = {r=0, g=0.8, b=1} -- 冰霜: 蓝色
         elseif spec == 252 then runeCol = {r=0.2, g=1, b=0.2} end -- 邪恶: 绿色
-        return 0, UnitPowerMax("player", 5), runeCol, 0
+        local readyRunes = 0
+        for i = 1, 6 do 
+            local _, _, ready = GetRuneCooldown(i)
+            if ready then readyRunes = readyRunes + 1 end 
+        end
+        return readyRunes, 6, runeCol, 0
     elseif playerClass == "MAGE" and spec == 62 then return UnitPower("player", 16), 4, PLAYER_CLASS_COLOR, 0
     elseif playerClass == "MONK" and spec == 268 then 
         local stagger = UnitStagger("player") or 0; local maxHealth = UnitHealthMax("player") or 1
@@ -327,7 +330,7 @@ end
 
 local barDefaults = {
     power = { independent = false, width = 250, barXOffset = 0, barYOffset = 0, height = 10, textEnable = true, textAnchor = "CENTER", fontSize = 12, outline = "OUTLINE", color = {r=1, g=1, b=1}, xOffset = 0, yOffset = 0, timerEnable = false, timerAnchor = "CENTER", timerXOffset = 0, timerYOffset = 0, useCustomColor = false, customColor = {r=0, g=0.5, b=1}, useCustomTexture = false, texture = "Wish2", useCustomBgTexture = false, bgTexture = "Wish2", useCustomBgColor = false, bgColor = {r=0, g=0, b=0, a=0.5}, enableThreshold = false, thresholdValue = 100, thresholdColor = {r=1, g=0, b=0}, thresholdPowerType = "ALL", borderEnable = true, borderSize = 1, borderColor = {r=0, g=0, b=0, a=1}, orientation = "HORIZONTAL" },
-    class = { independent = false, width = 250, barXOffset = 0, barYOffset = 0, height = 10, textEnable = false, textAnchor = "CENTER", fontSize = 12, outline = "OUTLINE", color = {r=1, g=1, b=1}, xOffset = 0, yOffset = 0, timerEnable = false, timerAnchor = "CENTER", timerXOffset = 0, timerYOffset = 0, useCustomColor = false, customColor = {r=1, g=0.96, b=0.41}, useCustomColors = {}, customColors = {}, useCustomTexture = false, texture = "Wish2", useCustomBgTexture = false, bgTexture = "Wish2", useCustomBgColor = false, bgColor = {r=0, g=0, b=0, a=0.5}, borderEnable = true, borderSize = 1, borderColor = {r=0, g=0, b=0, a=1}, orientation = "HORIZONTAL" },
+    class = { independent = false, width = 250, barXOffset = 0, barYOffset = 0, height = 10, textEnable = false, textAnchor = "CENTER", fontSize = 12, outline = "OUTLINE", color = {r=1, g=1, b=1}, xOffset = 0, yOffset = 0, timerEnable = false, timerAnchor = "CENTER", timerXOffset = 0, timerYOffset = 0, useCustomColor = false, customColor = {r=1, g=0.96, b=0.41}, useCustomColors = {}, customColors = {}, useChargeColor = false, chargeColor = {r=0.5, g=0.5, b=0.5, a=0.8}, useCustomTexture = false, texture = "Wish2", useCustomBgTexture = false, bgTexture = "Wish2", useCustomBgColor = false, bgColor = {r=0, g=0, b=0, a=0.5}, borderEnable = true, borderSize = 1, borderColor = {r=0, g=0, b=0, a=1}, orientation = "HORIZONTAL" },
     mana = { independent = false, width = 250, barXOffset = 0, barYOffset = 0, height = 10, textEnable = true, textAnchor = "CENTER", fontSize = 12, outline = "OUTLINE", color = {r=1, g=1, b=1}, xOffset = 0, yOffset = 0, timerEnable = false, timerAnchor = "CENTER", timerXOffset = 0, timerYOffset = 0, useCustomColor = false, customColor = {r=0, g=0.5, b=1}, useCustomTexture = false, texture = "Wish2", useCustomBgTexture = false, bgTexture = "Wish2", useCustomBgColor = false, bgColor = {r=0, g=0, b=0, a=0.5}, borderEnable = true, borderSize = 1, borderColor = {r=0, g=0, b=0, a=1}, orientation = "HORIZONTAL" },
     vigor = { independent = false, width = 250, barXOffset = 0, barYOffset = 0, height = 10, textEnable = false, textAnchor = "CENTER", fontSize = 12, outline = "OUTLINE", color = {r=1, g=1, b=1}, xOffset = 0, yOffset = 0, timerEnable = false, timerAnchor = "CENTER", timerXOffset = 0, timerYOffset = 0, useCustomColor = false, customColor = {r=0.2, g=0.7, b=1}, useCustomTexture = false, texture = "Wish2", useCustomBgTexture = false, bgTexture = "Wish2", useCustomBgColor = false, bgColor = {r=0, g=0, b=0, a=0.5}, borderEnable = true, borderSize = 1, borderColor = {r=0, g=0, b=0, a=1}, orientation = "HORIZONTAL" },
     whirling = { independent = false, width = 250, barXOffset = 0, barYOffset = 0, height = 4, textEnable = false, textAnchor = "CENTER", fontSize = 12, outline = "OUTLINE", color = {r=1, g=1, b=1}, xOffset = 0, yOffset = 0, timerEnable = false, timerAnchor = "CENTER", timerXOffset = 0, timerYOffset = 0, useCustomColor = false, customColor = {r=1, g=0.8, b=0}, useCustomTexture = false, texture = "Wish2", useCustomBgTexture = false, bgTexture = "Wish2", useCustomBgColor = false, bgColor = {r=0, g=0, b=0, a=0.5}, borderEnable = true, borderSize = 1, borderColor = {r=0, g=0, b=0, a=1}, orientation = "HORIZONTAL" },
@@ -913,25 +916,42 @@ function CR:DynamicTick()
         local rawCurr, rawMax, safeCurr, safeMax, cDefColor, safeExtra = CR.GetSafeClassResource()
         if safeMax <= 0 then safeMax = 1 end
 
-        if playerClass == "EVOKER" then
+if playerClass == "EVOKER" then
             if not CR.evokerEssence then CR.evokerEssence = { count = safeCurr, partial = 0, lastTick = GetTime() } end
             local now = GetTime(); local elapsed = now - CR.evokerEssence.lastTick; CR.evokerEssence.lastTick = now
             if safeCurr > CR.evokerEssence.count then CR.evokerEssence.partial = 0 end; CR.evokerEssence.count = safeCurr
-if safeCurr < safeMax then
-                local activeRegen = 0.2; if GetPowerRegenForPowerType then local _, act = GetPowerRegenForPowerType(19); if type(act)=="number" and not CR.IsSecret(act) then activeRegen = act end end
-                CR.evokerEssence.partial = CR.evokerEssence.partial + (activeRegen * elapsed); if CR.evokerEssence.partial >= 1 then CR.evokerEssence.partial = 0.99 end
-            else CR.evokerEssence.partial = 0 end
+            
+            if safeCurr < safeMax then
+                local activeRegen = 0.2
+                if GetPowerRegenForPowerType then 
+                    local _, act = GetPowerRegenForPowerType(19)
+                    if type(act) == "number" and not CR.IsSecret(act) then 
+                        activeRegen = act 
+                    end 
+                end
+                CR.evokerEssence.partial = CR.evokerEssence.partial + (activeRegen * elapsed)
+                if CR.evokerEssence.partial >= 1 then CR.evokerEssence.partial = 0.99 end
+            else 
+                CR.evokerEssence.partial = 0 
+            end
+            
             rawCurr = rawCurr + CR.evokerEssence.partial; safeCurr = safeCurr + CR.evokerEssence.partial
         elseif playerClass == "DEATHKNIGHT" then
-            local readyRunes = 0; local highestPartial = 0
+            local readyRunes = 0
             for i=1, 6 do
-                local start, duration, runeReady = GetRuneCooldown(i)
-                if runeReady then readyRunes = readyRunes + 1
-                elseif type(start)=="number" and type(duration)=="number" and start > 0 and duration > 0 then
-                    local partial = math.max(0, math.min(0.99, (GetTime() - start) / duration)); if partial > highestPartial then highestPartial = partial end
+                local _, _, runeReady = GetRuneCooldown(i)
+                if runeReady then readyRunes = readyRunes + 1 end
+            end
+            rawCurr = readyRunes; safeCurr = readyRunes
+
+            if not self.classBar.runes then
+                self.classBar.runes = {}
+                for i = 1, 6 do
+                    local rBar = CreateFrame("StatusBar", nil, self.classBar.statusBar)
+                    rBar:SetMinMaxValues(0, 1)
+                    self.classBar.runes[i] = rBar
                 end
             end
-            rawCurr = readyRunes + highestPartial; safeCurr = rawCurr
         end
 
         if safeCurr < safeMax then if playerClass ~= "WARLOCK" and playerClass ~= "ROGUE" and playerClass ~= "PALADIN" and playerClass ~= "MONK" then self.hasActiveTimer = true end end
@@ -952,8 +972,23 @@ if safeCurr < safeMax then
             end
         end
 
-        CR.UpdateBarValueSafe(self.classBar.statusBar, rawCurr, rawMax) 
+
+        local isFractional = playerClass ~= "DEATHKNIGHT" and (rawCurr - math_floor(rawCurr)) > 0.001
+        local useGeneralCharge = specCfg.class.useChargeColor and specCfg.class.chargeColor
+        local targetVal = rawCurr
+        if useGeneralCharge and isFractional then
+            targetVal = math_floor(rawCurr)
+        end
+        
+        CR.UpdateBarValueSafe(self.classBar.statusBar, targetVal, rawMax)
+        if useGeneralCharge and self.classBar.statusBar._lastTargetVal ~= targetVal then
+            self.classBar.statusBar._currentValue = targetVal
+            self.classBar.statusBar:SetValue(targetVal)
+            self.classBar.statusBar._lastTargetVal = targetVal
+        end
+
         self.classBar.statusBar:SetStatusBarColor(cColor.r, cColor.g, cColor.b)
+
         
         local tex = self.classBar.statusBar:GetStatusBarTexture()
         if tex then
@@ -965,7 +1000,6 @@ if safeCurr < safeMax then
             local matchedColor = CR.GetDynamicBarColor(CR.DecodeSecretValue(rawCurr, rawMax), rawMax, specCfg.class, cColor)
             local sC = matchedColor.startC or DEF_W_COL
             local eC = matchedColor.endC or DEF_W_COL
-            -- 【终极修复：渐变方向必须依据是否为独立排版状态进行联合判断】
             local orient = (specCfg.class.independent and specCfg.class.orientation == "VERTICAL") and "VERTICAL" or "HORIZONTAL"
             if CR._minColorObj and CR._maxColorObj then 
                 CR._minColorObj:SetRGBA(sC.r, sC.g, sC.b, sC.a or 1)
@@ -975,7 +1009,6 @@ if safeCurr < safeMax then
                 tex:SetGradient(orient, sC.r,sC.g,sC.b,sC.a or 1, eC.r,eC.g,eC.b,eC.a or 1) 
             end
         elseif tex then
-            -- 【终极修复：单色渐变清除滤镜的方向也必须同步修复】
             local orient = (specCfg.class.independent and specCfg.class.orientation == "VERTICAL") and "VERTICAL" or "HORIZONTAL"
             if CR._defaultColorObj then 
                 CR._defaultColorObj:SetRGBA(cColor.r, cColor.g, cColor.b, cColor.a or 1)
@@ -987,6 +1020,180 @@ if safeCurr < safeMax then
         
         if self.UpdateDividers then self:UpdateDividers(self.classBar, rawMax) end
         if self.FormatSafeText then self:FormatSafeText(self.classBar, specCfg.class, math_floor(safeCurr), rawMax, false, 0, specCfg.class.textEnable ~= false, nil, "class") end
+        
+        -- ▼▼▼ 新增：DK 并发切片逻辑 ▼▼▼
+        if playerClass == "DEATHKNIGHT" and self.classBar.runes then
+            -- 隐藏主条的填充材质，保留底色背景
+            local mainTex = self.classBar.statusBar:GetStatusBarTexture()
+            if mainTex then mainTex:SetAlpha(0) end
+            
+            local texPath = LSM:Fetch("statusbar", specCfg.class.texture or CR.GetDB().texture or "Wish2") or "Interface\\TargetingFrame\\UI-StatusBar"
+            if specCfg.class.useCustomTexture and specCfg.class.texture then texPath = LSM:Fetch("statusbar", specCfg.class.texture) end
+            
+            local width = self.classBar.statusBar:GetWidth() or 250
+            local height = self.classBar.statusBar:GetHeight() or 10
+            local isVert = (self.classBar.statusBar:GetOrientation() == "VERTICAL")
+            local segW = isVert and (height / 6) or (width / 6)
+            
+            local runeData = {}
+            for i = 1, 6 do
+                local start, duration, runeReady = GetRuneCooldown(i)
+                table.insert(runeData, { id = i, start = start or 0, duration = duration or 0, ready = runeReady })
+            end
+            table.sort(runeData, function(a, b)
+                if a.ready ~= b.ready then return a.ready end
+                if a.start ~= b.start then return a.start < b.start end
+                return a.id < b.id
+            end)
+            
+            local sC = cColor; local eC = cColor
+            if applyGrad and CR._gradColorCache then
+                sC = CR._gradColorCache.startC or cColor
+                eC = CR._gradColorCache.endC or cColor
+            end
+            local function LerpColor(c1, c2, t)
+                return {
+                    r = c1.r + (c2.r - c1.r) * t,
+                    g = c1.g + (c2.g - c1.g) * t,
+                    b = c1.b + (c2.b - c1.b) * t,
+                    a = (c1.a or 1) + ((c2.a or 1) - (c1.a or 1)) * t
+                }
+            end
+            
+            for i = 1, 6 do
+                local rBar = self.classBar.runes[i]
+                local data = runeData[i]
+                
+                local val = 0
+                if data.ready then
+                    val = 1
+                elseif data.start > 0 and data.duration > 0 then
+                    val = math.max(0, math.min(1, (GetTime() - data.start) / data.duration))
+                    self.hasActiveTimer = true
+                end
+                
+                if rBar:GetStatusBarTexture() then rBar:GetStatusBarTexture():SetAlpha(0) end
+                
+                if not rBar.globalTex then
+                    rBar.globalTex = rBar:CreateTexture(nil, "ARTWORK")
+                end
+                local gTex = rBar.globalTex
+                gTex:SetTexture(texPath)
+                gTex:SetHorizTile(false)
+                gTex:SetVertTile(false)
+                
+                rBar:ClearAllPoints()
+                if isVert then
+                    rBar:SetSize(width, segW)
+                    rBar:SetPoint("BOTTOMLEFT", self.classBar.statusBar, "BOTTOMLEFT", 0, (i-1)*segW)
+                    
+                    local curH = math.max(0.0001, val * segW)
+                    gTex:SetSize(width, curH)
+                    gTex:ClearAllPoints()
+                    gTex:SetPoint("BOTTOMLEFT", rBar, "BOTTOMLEFT", 0, 0)
+                    
+                    local globalStartRatio = (i - 1) / 6
+                    local globalEndRatio = (i - 1) / 6 + (val / 6)
+                    gTex:SetTexCoord(0, 1, 1 - globalEndRatio, 1 - globalStartRatio)
+                else
+                    rBar:SetSize(segW, height)
+                    rBar:SetPoint("BOTTOMLEFT", self.classBar.statusBar, "BOTTOMLEFT", (i-1)*segW, 0)
+                    
+                    local curW = math.max(0.0001, val * segW)
+                    gTex:SetSize(curW, height)
+                    gTex:ClearAllPoints()
+                    gTex:SetPoint("BOTTOMLEFT", rBar, "BOTTOMLEFT", 0, 0)
+                    
+                    local globalStartRatio = (i - 1) / 6
+                    local globalEndRatio = (i - 1) / 6 + (val / 6)
+                    gTex:SetTexCoord(globalStartRatio, globalEndRatio, 0, 1)
+                end
+                
+                local globalStartRatio = (i - 1) / 6
+                local globalEndRatio = (i - 1) / 6 + (val / 6)
+                local segStartC = LerpColor(sC, eC, globalStartRatio)
+                local segEndC = LerpColor(sC, eC, globalEndRatio)
+                
+                -- 充能颜色覆盖逻辑
+                if not data.ready and specCfg.class.useChargeColor and specCfg.class.chargeColor then
+                    local chC = specCfg.class.chargeColor
+                    segStartC = { r = chC.r, g = chC.g, b = chC.b, a = chC.a or 1 }
+                    segEndC = { r = chC.r, g = chC.g, b = chC.b, a = chC.a or 1 }
+                end
+                
+                local orient = isVert and "VERTICAL" or "HORIZONTAL"
+                if CreateColor then
+                    gTex:SetGradient(orient, CreateColor(segStartC.r, segStartC.g, segStartC.b, segStartC.a), CreateColor(segEndC.r, segEndC.g, segEndC.b, segEndC.a))
+                else
+                    gTex:SetGradient(orient, segStartC.r, segStartC.g, segStartC.b, segStartC.a, segEndC.r, segEndC.g, segEndC.b, segEndC.a)
+                end
+                
+                if val > 0 then gTex:Show() else gTex:Hide() end
+                rBar:Show()
+            end
+-- ▼▼▼ 替换为下面这段 ▼▼▼
+        elseif self.classBar.statusBar:GetStatusBarTexture() then
+            self.classBar.statusBar:GetStatusBarTexture():SetAlpha(1)
+            if self.classBar.runes then
+                for i = 1, 6 do 
+                    self.classBar.runes[i]:Hide() 
+                    if self.classBar.runes[i].globalTex then self.classBar.runes[i].globalTex:Hide() end
+                end
+            end
+            
+            -- 【核心魔法：为唤魔师、术士等生成专属的充能碎片贴图】
+            if useGeneralCharge and isFractional then
+                if not self.classBar.chargeTex then
+                    self.classBar.chargeTex = self.classBar.statusBar:CreateTexture(nil, "ARTWORK")
+                end
+                local cTex = self.classBar.chargeTex
+                
+                local texPath = LSM:Fetch("statusbar", specCfg.class.texture or CR.GetDB().texture or "Wish2") or "Interface\\TargetingFrame\\UI-StatusBar"
+                if specCfg.class.useCustomTexture and specCfg.class.texture then texPath = LSM:Fetch("statusbar", specCfg.class.texture) end
+                cTex:SetTexture(texPath)
+                cTex:SetHorizTile(false); cTex:SetVertTile(false)
+                
+                local chColor = specCfg.class.chargeColor
+                cTex:SetVertexColor(chColor.r, chColor.g, chColor.b, chColor.a or 1)
+                
+                local width = self.classBar.statusBar:GetWidth() or 250
+                local height = self.classBar.statusBar:GetHeight() or 10
+                local isVert = (self.classBar.statusBar:GetOrientation() == "VERTICAL")
+                
+                local maxVal = rawMax > 0 and rawMax or 1
+                local intPart = math_floor(rawCurr)
+                local fracPart = rawCurr - intPart
+                
+                cTex:ClearAllPoints()
+                if isVert then
+                    local segH = height / maxVal
+                    local curH = fracPart * segH
+                    cTex:SetSize(width, curH)
+                    -- 将充能贴图精准放置在已充满的整数点之上
+                    cTex:SetPoint("BOTTOMLEFT", self.classBar.statusBar, "BOTTOMLEFT", 0, intPart * segH)
+                    -- 切割对应的材质 UV，防止与主条材质产生割裂感
+                    local startRatio = intPart / maxVal
+                    local endRatio = startRatio + (fracPart / maxVal)
+                    cTex:SetTexCoord(0, 1, 1 - endRatio, 1 - startRatio)
+                else
+                    local segW = width / maxVal
+                    local curW = fracPart * segW
+                    cTex:SetSize(curW, height)
+                    -- 将充能贴图精准放置在已充满的整数点之右侧
+                    cTex:SetPoint("BOTTOMLEFT", self.classBar.statusBar, "BOTTOMLEFT", intPart * segW, 0)
+                    -- 切割对应的材质 UV
+                    local startRatio = intPart / maxVal
+                    local endRatio = startRatio + (fracPart / maxVal)
+                    cTex:SetTexCoord(startRatio, endRatio, 0, 1)
+                end
+                cTex:Show()
+            else
+                -- 满资源或不需要充能色时隐藏贴片
+                if self.classBar.chargeTex then self.classBar.chargeTex:Hide() end
+            end
+        end
+        -- ▲▲▲ 替换结束 ▲▲▲
+        -- ▲▲▲ 结束 ▲▲▲
         
         local isBrewmaster = (playerClass == "MONK" and CR.currentSpecID == 268)
         if isBrewmaster and self.classBar.text then

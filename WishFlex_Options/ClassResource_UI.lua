@@ -55,8 +55,7 @@ local function GetSandboxCDWidth()
     else return dbCR.lastKnownCDWidth or ((maxRow * w) + ((maxRow - 1) * gap) + (tonumber(dbCR.widthOffset) or 0)) end
 end
 
--- 【恢复极简逻辑】：撤销对 textRole 的依赖，点什么都老老实实执行
-local function SetupTextHitButton(btn, fontString, barKey)
+local function SetupTextHitButton(btn, fontString, barKey, textType)
     local hitBtn = fontString._hitBtn
     if not hitBtn then
         hitBtn = CreateFrame("Button", nil, fontString:GetParent(), "BackdropTemplate")
@@ -76,11 +75,11 @@ local function SetupTextHitButton(btn, fontString, barKey)
             GameTooltip:Hide() 
         end)
         hitBtn:SetScript("OnClick", function(self)
+            local subMenuKey = self.textType == "timer" and "text_timer" or "text_main"
             if string.sub(self.barKey, 1, 3) == "WM_" then
                 local spellIDStr = string.sub(self.barKey, 4)
                 local wmDB = WF.db.wishMonitor
                 
-                -- 恢复成最初的简单判定：只要是纯文本，它就只会是倒计时面板
                 local cfg = (wmDB.skills and wmDB.skills[spellIDStr]) or (wmDB.buffs and wmDB.buffs[spellIDStr])
                 if cfg and cfg.displayMode == "text" then
                     CR.Sandbox.popupMode = "EDIT_MONITOR_TEXT"
@@ -88,7 +87,7 @@ local function SetupTextHitButton(btn, fontString, barKey)
                     CR.Sandbox.popupMode = "EDIT_MONITOR_BAR"
                 end
                 
-                CR.Sandbox.popupSubMenu = "text"
+                CR.Sandbox.popupSubMenu = subMenuKey
                 CR.Sandbox.editMonitorID = spellIDStr
                 CR.Sandbox.lastEditMonitorID = spellIDStr
                 CR.Sandbox.editMonitorCat = (wmDB.skills and wmDB.skills[spellIDStr]) and "skill" or "buff"
@@ -97,13 +96,14 @@ local function SetupTextHitButton(btn, fontString, barKey)
                 CR.Sandbox.popupMode = "ROW"
                 CR.Sandbox.popupTarget = self.barKey
                 CR.Sandbox.lastTarget = self.barKey
-                CR.Sandbox.popupSubMenu = "text"
+                CR.Sandbox.popupSubMenu = subMenuKey
                 WF.UI:RefreshCurrentPanel()
             end
         end)
         fontString._hitBtn = hitBtn
     end
     hitBtn.barKey = barKey
+    hitBtn.textType = textType
     hitBtn:ClearAllPoints()
     hitBtn:SetPoint("TOPLEFT", fontString, "TOPLEFT", -4, 2)
     hitBtn:SetPoint("BOTTOMRIGHT", fontString, "BOTTOMRIGHT", 4, -2)
@@ -337,7 +337,7 @@ WF.UI:RegisterPanel("classResource_Global", function(scrollChild, ColW)
                         local spellIDStr = string.sub(self.key, 4)
                         if self.isTextMode then
                             CR.Sandbox.popupMode = "EDIT_MONITOR_TEXT"
-                            CR.Sandbox.popupSubMenu = "text"
+                            CR.Sandbox.popupSubMenu = "text_timer"
                         else
                             CR.Sandbox.popupMode = "EDIT_MONITOR_BAR"
                             CR.Sandbox.popupSubMenu = nil
@@ -562,9 +562,8 @@ WF.UI:RegisterPanel("classResource_Global", function(scrollChild, ColW)
                     if key == "WM_48517" then
                         btn.mockMain:SetText(""); btn.mockMain:SetAlpha(0); btn.mockMain:Hide(); if btn.mockMain._hitBtn then btn.mockMain._hitBtn:Hide() end
                         btn.mockTimer:SetText("8.0"); btn.mockTimer:SetAlpha(1); btn.mockTimer:ClearAllPoints(); btn.mockTimer:SetPoint("LEFT", btn.textFrame, "CENTER", 8, 0); btn.mockTimer:SetJustifyH("LEFT"); btn.mockTimer:Show()
-                        SetupTextHitButton(btn, btn.mockTimer, key)
+                        SetupTextHitButton(btn, btn.mockTimer, key, "timer")
                     else
-                        -- 【恢复极简逻辑】：只要是纯文本模式，隐藏层数，只展示倒计时占位符
                         if isTextMode then
                             btn.mockMain:SetText(""); btn.mockMain:SetAlpha(0); btn.mockMain:Hide()
                             if btn.mockMain._hitBtn then btn.mockMain._hitBtn:Hide() end
@@ -573,17 +572,17 @@ WF.UI:RegisterPanel("classResource_Global", function(scrollChild, ColW)
                             btn.mockTimer:ClearAllPoints(); btn.mockTimer:SetPoint(GetSafeJustify(tAnchor), btn.textFrame, GetSafeJustify(tAnchor), tX, tY); btn.mockTimer:SetJustifyH(GetSafeJustify(tAnchor))
                             
                             if cfgObj.timerEnable ~= false then btn.mockTimer:SetText("12s"); btn.mockTimer:SetAlpha(1) else btn.mockTimer:SetText(L["[Text Disabled]"] or "[文本未启用]"); btn.mockTimer:SetAlpha(0.6) end
-                            btn.mockTimer:Show(); SetupTextHitButton(btn, btn.mockTimer, key)
+                            btn.mockTimer:Show(); SetupTextHitButton(btn, btn.mockTimer, key, "timer")
                         else
                             local mAnchor = cfgObj.textAnchor or "CENTER"; local mX = tonumber(cfgObj.xOffset) or 0; local mY = tonumber(cfgObj.yOffset) or 0
                             btn.mockMain:ClearAllPoints(); btn.mockMain:SetPoint(GetSafeJustify(mAnchor), btn.textFrame, GetSafeJustify(mAnchor), mX, mY); btn.mockMain:SetJustifyH(GetSafeJustify(mAnchor))
                             if cfgObj.textEnable ~= false then btn.mockMain:SetText(numMax > 1 and tostring(numMax) or "3"); btn.mockMain:SetAlpha(1) else btn.mockMain:SetText(L["[Text Disabled]"] or "[文本未启用]"); btn.mockMain:SetAlpha(0.6) end
-                            btn.mockMain:Show(); SetupTextHitButton(btn, btn.mockMain, key)
+                            btn.mockMain:Show(); SetupTextHitButton(btn, btn.mockMain, key, "main")
 
                             local tAnchor = cfgObj.timerAnchor or "CENTER"; local tX = tonumber(cfgObj.timerXOffset) or 0; local tY = tonumber(cfgObj.timerYOffset) or 0
                             btn.mockTimer:ClearAllPoints(); btn.mockTimer:SetPoint(GetSafeJustify(tAnchor), btn.textFrame, GetSafeJustify(tAnchor), tX, tY); btn.mockTimer:SetJustifyH(GetSafeJustify(tAnchor))
                             if cfgObj.timerEnable ~= false then btn.mockTimer:SetText("12s"); btn.mockTimer:SetAlpha(1) else btn.mockTimer:SetText(L["[Text Disabled]"] or "[文本未启用]"); btn.mockTimer:SetAlpha(0.6) end
-                            btn.mockTimer:Show(); SetupTextHitButton(btn, btn.mockTimer, key)
+                            btn.mockTimer:Show(); SetupTextHitButton(btn, btn.mockTimer, key, "timer")
                         end
                     end
                 else
@@ -592,7 +591,7 @@ WF.UI:RegisterPanel("classResource_Global", function(scrollChild, ColW)
                         local mAnchor = cfgObj.textAnchor or "CENTER"; local mX = tonumber(cfgObj.xOffset) or (mAnchor=="LEFT" and 4 or (mAnchor=="RIGHT" and -4 or 0)); local mY = tonumber(cfgObj.yOffset) or 0
                         btn.mockMain:ClearAllPoints(); btn.mockMain:SetPoint(GetSafeJustify(mAnchor), btn.textFrame, GetSafeJustify(mAnchor), mX, mY); btn.mockMain:SetJustifyH(GetSafeJustify(mAnchor))
                         if cfgObj.textEnable ~= false then btn.mockMain:SetText("100"); btn.mockMain:SetAlpha(1) else btn.mockMain:SetText(L["[Text Disabled]"] or "[文本未启用]"); btn.mockMain:SetAlpha(0.6) end
-                        btn.mockMain:Show(); SetupTextHitButton(btn, btn.mockMain, key)
+                        btn.mockMain:Show(); SetupTextHitButton(btn, btn.mockMain, key, "main")
                     else btn.mockMain:Hide(); if btn.mockMain._hitBtn then btn.mockMain._hitBtn:Hide() end end
                     btn.mockTimer:Hide(); if btn.mockTimer._hitBtn then btn.mockTimer._hitBtn:Hide() end
                 end

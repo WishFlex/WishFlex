@@ -35,6 +35,8 @@ end)
 WM.TrackedSkills = {}
 WM.TrackedBuffs = {}
 WM.SpellToCD = {}
+WM.SpellToCDBuff = {}
+WM.SpellToCDSkill = {}
 WM.ActiveBuffFrames = {}
 WM.ActiveSkillFrames = {}
 WM.ScanCacheFrames = {}
@@ -64,6 +66,8 @@ function WM:ScanViewers(isFromUI)
     wipe(WM.TrackedSkills)
     wipe(WM.TrackedBuffs)
     wipe(WM.SpellToCD)
+    wipe(WM.SpellToCDBuff)
+    wipe(WM.SpellToCDSkill)
     wipe(WM.ActiveBuffFrames)
     wipe(WM.ActiveSkillFrames)
 
@@ -82,10 +86,11 @@ function WM:ScanViewers(isFromUI)
                 if cdID then
                     local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
                     if info then
-                        if info.spellID then WM.SpellToCD[info.spellID] = cdID end
-                        if info.overrideSpellID and info.overrideSpellID > 0 then WM.SpellToCD[info.overrideSpellID] = cdID end
+                        local targetMap = isAura and WM.SpellToCDBuff or WM.SpellToCDSkill
+                        if info.spellID then WM.SpellToCD[info.spellID] = cdID; targetMap[info.spellID] = cdID end
+                        if info.overrideSpellID and info.overrideSpellID > 0 then WM.SpellToCD[info.overrideSpellID] = cdID; targetMap[info.overrideSpellID] = cdID end
                         if info.linkedSpellIDs then
-                            for _, lID in ipairs(info.linkedSpellIDs) do WM.SpellToCD[lID] = cdID end
+                            for _, lID in ipairs(info.linkedSpellIDs) do WM.SpellToCD[lID] = cdID; targetMap[lID] = cdID end
                         end
                         
                         local mainID = (info.linkedSpellIDs and info.linkedSpellIDs[1]) or info.overrideSpellID or info.spellID
@@ -107,8 +112,14 @@ function WM:ScanViewers(isFromUI)
     end
     ProcessViewer("EssentialCooldownViewer", false)
     ProcessViewer("UtilityCooldownViewer", false)
+    if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.CustomRows then
+        for _, r in ipairs(WF.db.cooldownCustom.CustomRows) do ProcessViewer("WishFlex_CooldownViewer_"..r, false) end
+    end
     ProcessViewer("BuffIconCooldownViewer", true)
     ProcessViewer("BuffBarCooldownViewer", true)
+    if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.CustomBuffRows then
+        for _, r in ipairs(WF.db.cooldownCustom.CustomBuffRows) do ProcessViewer("WishFlex_CooldownViewer_"..r, true) end
+    end
 end
 
 local defaults = {
@@ -238,7 +249,7 @@ function WM:UpdateData()
         end
         
         if isBuff then
-            local cdID = WM.SpellToCD[spellID]
+            local cdID = WM.SpellToCDBuff and WM.SpellToCDBuff[spellID] or nil
             local instID, foundFrame = nil, nil
             local auraUnit = "player"
 
@@ -253,12 +264,16 @@ function WM:UpdateData()
             end
 
             if not isActive and cdID then
-                for _, vName in ipairs({"BuffIconCooldownViewer", "BuffBarCooldownViewer", "EssentialCooldownViewer", "UtilityCooldownViewer"}) do
+                local viewersToScan = {"BuffIconCooldownViewer", "BuffBarCooldownViewer"}
+                if WF.db and WF.db.cooldownCustom and WF.db.cooldownCustom.CustomBuffRows then
+                    for _, r in ipairs(WF.db.cooldownCustom.CustomBuffRows) do table.insert(viewersToScan, "WishFlex_CooldownViewer_"..r) end
+                end
+                for _, vName in ipairs(viewersToScan) do
                     local viewer = _G[vName]
                     if viewer and viewer.itemFramePool then
-                        for frame in viewer.itemFramePool:EnumerateActive() do
+for frame in viewer.itemFramePool:EnumerateActive() do
                             local frameCdID = frame.cooldownID or (frame.cooldownInfo and frame.cooldownInfo.cooldownID)
-                            if frameCdID == cdID and (frame:IsShown() or frame._wishFlexHidden or cfg.hideOriginal) then
+                            if frameCdID == cdID and frame:IsShown() then
                                 foundFrame = frame
                                 instID = frame.auraInstanceID
                                 if type(instID) == "table" and instID.auraInstanceID ~= nil then instID = instID.auraInstanceID end
