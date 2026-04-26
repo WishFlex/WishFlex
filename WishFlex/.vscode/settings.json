@@ -1,0 +1,15 @@
+{
+    "Lua.diagnostics.globals": [
+        "SlashCmdList",
+        "EditModeManagerFrame",
+        "STANDARD_TEXT_FONT",
+        "ReloadUI",
+        "CreateTexturePool",
+        "CreateFramePool",
+        "AnimateTexCoords",
+        "AddonCompartmentFrame",
+        "RAID_CLASS_COLORS",
+        "RANGE_INDICATOR",
+        "UIFrameFadeRemoveFrame"
+    ]
+}

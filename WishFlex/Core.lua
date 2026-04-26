@@ -588,8 +588,16 @@ function WF:ToggleMovers()
     WF:SetEditMode(not WF.MoversUnlocked)
 end
 
-SLASH_WISHFLEXMOVER1 = " "
-SlashCmdList["WISHFLEXMOVER"] = function() WF:ToggleMovers() end
+SLASH_WISHFLEXMOVER1 = "/wfmove"
+SlashCmdList["WISHFLEXMOVER"] = function() 
+    if EditModeManagerFrame then
+        ShowUIPanel(EditModeManagerFrame)
+        if WF.MainFrame and WF.MainFrame:IsShown() then WF.MainFrame:Hide() end
+        print("|cff00ffcc[WishFlex]|r 正在进入暴雪编辑模式...")
+    else
+        WF:ToggleMovers()
+    end
+end
 
 function WF:OpenUI()
     if not C_AddOns.IsAddOnLoaded("WishFlex_Options") then

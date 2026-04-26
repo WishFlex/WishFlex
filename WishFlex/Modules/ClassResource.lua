@@ -917,8 +917,8 @@ function CR:DynamicTick()
             if not CR.evokerEssence then CR.evokerEssence = { count = safeCurr, partial = 0, lastTick = GetTime() } end
             local now = GetTime(); local elapsed = now - CR.evokerEssence.lastTick; CR.evokerEssence.lastTick = now
             if safeCurr > CR.evokerEssence.count then CR.evokerEssence.partial = 0 end; CR.evokerEssence.count = safeCurr
-            if safeCurr < safeMax then
-                local activeRegen = 0.2; if GetPowerRegenForPowerType then local _, act = GetPowerRegenForPowerType(19); if type(act)=="number" then activeRegen = act end end
+if safeCurr < safeMax then
+                local activeRegen = 0.2; if GetPowerRegenForPowerType then local _, act = GetPowerRegenForPowerType(19); if type(act)=="number" and not CR.IsSecret(act) then activeRegen = act end end
                 CR.evokerEssence.partial = CR.evokerEssence.partial + (activeRegen * elapsed); if CR.evokerEssence.partial >= 1 then CR.evokerEssence.partial = 0.99 end
             else CR.evokerEssence.partial = 0 end
             rawCurr = rawCurr + CR.evokerEssence.partial; safeCurr = safeCurr + CR.evokerEssence.partial
