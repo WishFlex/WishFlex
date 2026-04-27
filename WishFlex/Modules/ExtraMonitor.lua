@@ -26,6 +26,8 @@ local defaults = {
         [5512] = true,     
         [241308] = true,   
         [241304] = true,   
+        [241294] = true,   -- 吞噬之梦药水
+        [241288] = true,   -- 鲁莽药水
     },
     customSpells = {},
     customOrder = {},
@@ -37,7 +39,6 @@ local MANUAL_ITEM_ALTERNATE_EXCEPTION_GROUPS = {
 
 local function GetResolvedItemID(configItemID)
     if not configItemID or configItemID <= 0 then return configItemID end
-    if GetItemCount(configItemID) > 0 or IsEquippedItem(configItemID) then return configItemID end
 
     for _, group in ipairs(MANUAL_ITEM_ALTERNATE_EXCEPTION_GROUPS) do
         local inGroup = false
@@ -49,14 +50,42 @@ local function GetResolvedItemID(configItemID)
 
     local _, refSpell = C_Item.GetItemSpell(configItemID)
     if refSpell and refSpell > 0 then
-        for _, delta in ipairs({ 1, -1 }) do
-            local oid = configItemID + delta
-            if oid > 0 and GetItemCount(oid) > 0 then
-                local _, sp = C_Item.GetItemSpell(oid)
-                if sp == refSpell then return oid end
+        local bestID = configItemID
+        local bestQuality = -1
+        local bestCount = 0
+        
+        local function GetQuality(id)
+            local q = nil
+            if C_TradeSkillUI and C_TradeSkillUI.GetItemReagentQualityByItemInfo then q = C_TradeSkillUI.GetItemReagentQualityByItemInfo(id) end
+            if not q and C_TradeSkillUI and C_TradeSkillUI.GetItemCraftedQualityByItemInfo then q = C_TradeSkillUI.GetItemCraftedQualityByItemInfo(id) end
+            return q or 0
+        end
+
+        if GetItemCount(configItemID) > 0 then 
+            bestQuality = GetQuality(configItemID)
+            bestCount = GetItemCount(configItemID)
+        end
+
+        for delta = -5, 5 do
+            if delta ~= 0 then
+                local oid = configItemID + delta
+                if oid > 0 and GetItemCount(oid) > 0 then
+                    local _, sp = C_Item.GetItemSpell(oid)
+                    if sp == refSpell then
+                        local q = GetQuality(oid)
+                        if q > bestQuality then
+                            bestQuality = q
+                            bestID = oid
+                            bestCount = GetItemCount(oid)
+                        end
+                    end
+                end
             end
         end
+        if bestCount > 0 then return bestID end
     end
+
+    if GetItemCount(configItemID) > 0 or IsEquippedItem(configItemID) then return configItemID end
     return configItemID
 end
 
@@ -153,6 +182,7 @@ local function IsSpellAvailable(spellID)
     return isKnown
 end
 
+-- 【彻底修复】：恢复严格的背包检测机制，包里有才返回true，没有就彻底隐藏
 local function IsItemAvailable(itemID)
     if not itemID then return false end
     local isKnown = false
@@ -176,6 +206,14 @@ local function GetDB()
             else WF.db.extraMonitor[k] = v end
         end
     end
+    
+    if WF.db.extraMonitor.zeroCountBehavior == "gray" then WF.db.extraMonitor.zeroCountBehavior = "hide" end
+    
+    if WF.db.extraMonitor.customItems then
+        WF.db.extraMonitor.customItems[241294] = true 
+        WF.db.extraMonitor.customItems[241288] = true 
+    end
+    
     if WF.db.extraMonitor.iconSize then
         WF.db.extraMonitor.iconWidth = WF.db.extraMonitor.iconSize
         WF.db.extraMonitor.iconHeight = WF.db.extraMonitor.iconSize
@@ -296,8 +334,19 @@ function ExtraMonitor:GetTrackedItemsForSandbox()
     local db = self.GetDB(); local trackers = {}; local order = db.customOrder or EMPTY_TABLE
     local function AddEM(tStr, id, isRac, isTrin, en)
         local idStr = tostring(id)
-        local nameStr = (tStr == "item") and (C_Item.GetItemNameByID(id) or "Item:"..id) or ((C_Spell.GetSpellInfo(id) and C_Spell.GetSpellInfo(id).name) or "Spell:"..id)
-        local iconTex = (tStr == "item") and C_Item.GetItemIconByID(id) or C_Spell.GetSpellTexture(id)
+        local nameStr = ""
+        local iconTex = nil
+        
+        if tStr == "item" then
+            if C_Item and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(id) end
+            nameStr = C_Item.GetItemNameByID(id) or ("物品:" .. id)
+            iconTex = C_Item.GetItemIconByID(id) or 134400 
+        else
+            local sInfo = C_Spell.GetSpellInfo(id)
+            nameStr = sInfo and sInfo.name or ("法术:" .. id)
+            iconTex = C_Spell.GetSpellTexture(id) or 134400
+        end
+        
         local dbKey = tStr .. "_" .. idStr
         table.insert(trackers, { idStr = idStr, dbKey = dbKey, name = nameStr, icon = iconTex, defaultIdx = order[dbKey] or 999, type = tStr, isRacial = isRac, isTrinket = isTrin, enabled = en })
     end
@@ -324,7 +373,14 @@ function ExtraMonitor:GetTrackedItemsForSandbox()
     end
     
     if db.customSpells then for id, en in pairs(db.customSpells) do if IsSpellAvailable(id) then AddEM("spell", id, false, false, en) end end end
-    if db.customItems then for id, en in pairs(db.customItems) do AddEM("item", id, false, false, en) end end
+    if db.customItems then 
+        for id, en in pairs(db.customItems) do 
+            -- 沙盒生成时也要验证背包拥有情况
+            if IsItemAvailable(id) then 
+                AddEM("item", id, false, false, en) 
+            end 
+        end 
+    end
     return trackers
 end
 
@@ -635,19 +691,35 @@ function ExtraMonitor:UpdateDisplay()
                 local isFaded = false 
                 if data.type == "spell" then
                     if not isOnGCD and durObj and spellCdActive then
-                        if not f._lastDurObj or f._lastDurObj.startTime ~= durObj.startTime or f._lastDurObj.duration ~= durObj.duration then
-                            pcall(f.cd.SetCooldownFromDurationObject, f.cd, durObj)
-                            f._lastDurObj = { startTime = durObj.startTime, duration = durObj.duration }
-                            f._lastSt = nil
+                        local remain = (durObj.startTime or 0) + (durObj.duration or 0) - GetTime()
+                        if remain > 0 then
+                            if not f._lastDurObj or f._lastDurObj.startTime ~= durObj.startTime or f._lastDurObj.duration ~= durObj.duration then
+                                pcall(f.cd.SetCooldownFromDurationObject, f.cd, durObj)
+                                f._lastDurObj = { startTime = durObj.startTime, duration = durObj.duration }
+                                f._lastSt = nil
+                            end
+                            f.cdActive = true
+                            isFaded = true
+                        else
+                            if f.cdActive then f.cd:Clear(); f.cdActive = false; f._lastDurObj = nil; f._lastSt = nil end
+                            isFaded = false
                         end
-                        f.cdActive = true
                     else 
                         if f.cdActive then f.cd:Clear(); f.cdActive = false; f._lastDurObj = nil; f._lastSt = nil end 
+                        isFaded = false
                     end
-                    if chargeInfo and chargeInfo.maxCharges and chargeInfo.maxCharges > 1 then isFaded = (chargeInfo.currentCharges == 0) else isFaded = f.cd:IsShown() end
+                    if chargeInfo and chargeInfo.maxCharges and chargeInfo.maxCharges > 1 then 
+                        isFaded = (chargeInfo.currentCharges == 0) 
+                    end
                 else
                     local validItemCD = false
-                    if type(dur) == "number" and dur > 1.5 then validItemCD = true elseif type(issecretvalue) == "function" and issecretvalue(dur) then validItemCD = true end
+                    if type(dur) == "number" and dur > 1.5 then 
+                        if st and (st + dur) > GetTime() then
+                            validItemCD = true 
+                        end
+                    elseif type(issecretvalue) == "function" and issecretvalue(dur) then 
+                        validItemCD = true 
+                    end
                     
                     if validItemCD then
                         if f._lastSt ~= st or f._lastDur ~= dur then
@@ -656,7 +728,7 @@ function ExtraMonitor:UpdateDisplay()
                             f._lastDur = dur
                             f._lastDurObj = nil
                         end
-                        f.cdActive = true; isFaded = f.cd:IsShown() 
+                        f.cdActive = true; isFaded = true 
                     else 
                         if f.cdActive then f.cd:Clear(); f.cdActive = false; f._lastSt = nil; f._lastDurObj = nil end; isFaded = false 
                     end
@@ -696,8 +768,7 @@ local updatePending = false
 function ExtraMonitor:TriggerUpdate()
     if not updatePending then
         updatePending = true
-        -- 【极限优化】：大幅拉长防抖时间，拒绝团本高频技能刷新造成的 CPU 卡顿
-        C_Timer.After(0.25, function()
+        C_Timer.After(0.05, function()
             updatePending = false
             if ExtraMonitor:IsShown() or (WF.db and WF.db.extraMonitor and WF.db.extraMonitor.enable) then
                 ExtraMonitor:UpdateDisplay()

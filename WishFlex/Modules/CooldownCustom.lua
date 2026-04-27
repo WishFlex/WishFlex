@@ -53,15 +53,8 @@ local function MigrateOldSettings(db)
     if db.ItemBuff and db.ItemBuff.snapToBuffIcon == nil then db.ItemBuff.snapToBuffIcon = true end
 end
 
--- 【核心修复】：废除物理像素转化，回归纯净逻辑像素！
-function CDMod.GetOnePixelSize()
-    return 1
-end
-
-function CDMod.PixelSnap(value)
-    if not value then return 0 end
-    return value -- 取消浮点数吸附，彻底消灭GPU由于亚像素产生的取整撕裂
-end
+function CDMod.GetOnePixelSize() return 1 end
+function CDMod.PixelSnap(value) if not value then return 0 end; return value end
 
 function CDMod:GetCurrentSpecID()
     local specIdx = GetSpecialization(); if not specIdx then return 0 end
@@ -353,6 +346,12 @@ local function GetLayoutStateHash()
             end
         end
         hash = (hash * 13 + c) % 2147483647
+    end
+    
+    if CDMod.ElixirFrame and CDMod.ElixirFrame:IsShown() then
+        local sidNum = 455180
+        local hidden = CDMod.ElixirFrame._wishFlexHidden and 1 or 0
+        hash = (hash * 31 + sidNum) % 2147483647; hash = hash + hidden
     end
 
     return hash
@@ -1017,6 +1016,46 @@ function CDMod:UpdateAllLayouts()
         end
     end
 
+    if CDMod:GetCurrentSpecID() == 268 and CDMod.ElixirFrame then
+        local f = CDMod.ElixirFrame
+        local isPreview = EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive()
+        
+        f:Show()
+        
+        if isPreview and not CDMod.ElixirActive then
+            f.Cooldown:SetCooldown(GetTime(), 15)
+            f.Cooldown:Pause()
+            if WF.GlowAPI then WF.GlowAPI:Hide(f) else ActionButton_HideOverlayGlow(f) end
+        elseif not isPreview and CDMod.ElixirActive then
+            f.Cooldown:Resume()
+            if WF.GlowAPI then WF.GlowAPI:Hide(f) else ActionButton_HideOverlayGlow(f) end
+        elseif not isPreview and not CDMod.ElixirActive then
+            f.Cooldown:Clear()
+            if WF.GlowAPI then WF.GlowAPI:Show(f) else ActionButton_ShowOverlayGlow(f) end
+        end
+
+        local info = f.cooldownInfo
+        local tCat = "Defensive" 
+        local dbO = WF.db.cooldownCustom and WF.db.cooldownCustom.spellOverrides
+        local oCat = CDMod.GetOverrideData(info, dbO, false, "category")
+        if oCat then
+            local isBuffCat = (oCat == "BuffIcon" or oCat == "BuffBar" or oCat == "ItemBuff")
+            if db.CustomBuffRows then for _, r in ipairs(db.CustomBuffRows) do if oCat == r then isBuffCat = true; break end end end
+            if not isBuffCat then tCat = oCat end
+        end
+        
+        if CDMod.ShouldHideCD(info) then 
+            CDMod.PhysicalHideFrame(f) 
+            if WF.GlowAPI then WF.GlowAPI:Hide(f) else ActionButton_HideOverlayGlow(f) end
+        else 
+            if not catFrames[tCat] then catFrames[tCat] = {} end
+            table.insert(catFrames[tCat], f) 
+        end
+    elseif CDMod.ElixirFrame then
+        CDMod.ElixirFrame:Hide()
+        if WF.GlowAPI then WF.GlowAPI:Hide(CDMod.ElixirFrame) else ActionButton_HideOverlayGlow(CDMod.ElixirFrame) end
+    end
+
     LayoutGenericGroup(_G.EssentialCooldownViewer, catFrames.Essential, "Essential", false)
     LayoutGenericGroup(_G.UtilityCooldownViewer, catFrames.Utility, "Utility", false)
     
@@ -1091,6 +1130,47 @@ local function InitCooldownCustom()
     if WF.db.cooldownCustom.enable == false then return end
 
     if not WF.db.movers then WF.db.movers = {} end
+
+    -- 【采用 EXWIND 同款的监听逻辑设计】
+    CDMod.ElixirFrame = CreateFrame("Frame", "WishFlex_BrewmasterElixirFrame", UIParent, "BackdropTemplate")
+    CDMod.ElixirFrame:SetSize(40, 40)
+    CDMod.ElixirFrame.Icon = CDMod.ElixirFrame:CreateTexture(nil, "BACKGROUND")
+    CDMod.ElixirFrame.Icon:SetAllPoints()
+    CDMod.ElixirFrame.Icon:SetTexture(608949) 
+    CDMod.ElixirFrame.Cooldown = CreateFrame("Cooldown", nil, CDMod.ElixirFrame, "CooldownFrameTemplate")
+    CDMod.ElixirFrame.Cooldown:SetAllPoints()
+    CDMod.ElixirFrame.Cooldown:SetDrawEdge(false)
+    CDMod.ElixirFrame.Cooldown:SetDrawSwipe(true)
+    CDMod.ElixirFrame.Cooldown:SetHideCountdownNumbers(false)
+    CDMod.ElixirFrame.Count = CDMod.ElixirFrame:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+    CDMod.ElixirFrame.cooldownInfo = { spellID = 455180 }
+
+    CDMod.ElixirActive = false
+    CDMod.ElixirEndTime = 0
+
+    -- 完全对齐 EXWIND 的触发器：直接接管并监听原生的 SPELL_UPDATE_COOLDOWN，且不使用可能失效的事件！
+    WF:RegisterEvent("SPELL_UPDATE_COOLDOWN", function(event, spellID)
+        if CDMod:GetCurrentSpecID() ~= 268 then return end
+        if tonumber(spellID) == 455180 then
+            local now = GetTime()
+            if not CDMod.ElixirActive or (now > CDMod.ElixirEndTime) then
+                CDMod.ElixirActive = true
+                CDMod.ElixirEndTime = now + 15
+                CDMod.ElixirFrame.Cooldown:SetCooldown(now, 15)
+                if WF.GlowAPI then WF.GlowAPI:Hide(CDMod.ElixirFrame) else ActionButton_HideOverlayGlow(CDMod.ElixirFrame) end
+                CDMod:MarkLayoutDirty(true)
+            end
+        end
+    end)
+
+    C_Timer.NewTicker(0.5, function()
+        if CDMod.ElixirActive and GetTime() >= CDMod.ElixirEndTime then
+            CDMod.ElixirActive = false
+            CDMod.ElixirFrame.Cooldown:Clear()
+            if WF.GlowAPI then WF.GlowAPI:Show(CDMod.ElixirFrame) else ActionButton_ShowOverlayGlow(CDMod.ElixirFrame) end
+            CDMod:MarkLayoutDirty(true)
+        end
+    end)
     
     if WF.ExtraMonitorAPI and WF.ExtraMonitorAPI.UpdateDisplay and not CDMod._emMasterHooked then
         CDMod._emMasterHooked = true
@@ -1175,35 +1255,21 @@ local function InitCooldownCustom()
         C_Timer.After(1.0, function() CDMod:MarkLayoutDirty(true) end)
     end)
 
--- ▼▼▼ 替换为这段新逻辑 ▼▼▼
     local function RefreshOnTalentChange()
         if WF.db.cooldownCustom.enable == false then return end 
-        
-        -- 立即刷新一次
         CDMod:MarkLayoutDirty(true)
-        
-        -- 阶梯式延迟唤醒：确保暴雪的底层 API 和动画完全结束后，强制插件捕获新生成的天赋技能
         C_Timer.After(0.5, function() CDMod:MarkLayoutDirty(true) end)
         C_Timer.After(1.5, function() CDMod:MarkLayoutDirty(true) end)
         C_Timer.After(3.0, function() CDMod:MarkLayoutDirty(true) end)
-        
-        -- 针对 ExtraMonitor (额外监控，例如邪能破坏者)，同步发送强制更新指令
         if WF.ExtraMonitorAPI and type(WF.ExtraMonitorAPI.TriggerUpdate) == "function" then
             C_Timer.After(0.5, function() WF.ExtraMonitorAPI:TriggerUpdate() end)
             C_Timer.After(1.5, function() WF.ExtraMonitorAPI:TriggerUpdate() end)
         end
     end
 
+    -- 清理了所有可能导致报错的过期事件（如 PLAYER_TALENT_UPDATE、UNIT_PET 等），只保留绝对安全的官方主事件
     WF:RegisterEvent("SPELLS_CHANGED", RefreshOnTalentChange)
-    WF:RegisterEvent("TRAIT_CONFIG_UPDATED", RefreshOnTalentChange) -- 专职监听天赋树的变更事件
-    WF:RegisterEvent("PLAYER_TALENT_UPDATE", RefreshOnTalentChange)
-    -- ▲▲▲ 替换结束 ▲▲▲
-    
-    WF:RegisterEvent("UNIT_PET", function(unit)
-        if unit == "player" and WF.db.cooldownCustom.enable ~= false then 
-            C_Timer.After(0.5, function() CDMod:MarkLayoutDirty(true) end)
-        end
-    end)
+    WF:RegisterEvent("TRAIT_CONFIG_UPDATED", RefreshOnTalentChange) 
     
     CDMod:MarkLayoutDirty(true)
 end

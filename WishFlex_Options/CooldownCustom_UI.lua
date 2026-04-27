@@ -138,6 +138,27 @@ local function ScanForSandbox()
     DoActiveScan("UtilityCooldownViewer", "Utility", false, 1)
     DoActiveScan("BuffIconCooldownViewer", "BuffIcon", true, 2)
     DoActiveScan("BuffBarCooldownViewer", "BuffBar", true, 3)
+
+    -- === 【新增】在沙盒中自动为酒仙专精注入明志灵药图标 ===
+    if CDMod:GetCurrentSpecID() == 268 then
+        local dbKey = "CD_455180"
+        if not seen[dbKey] then
+            seen[dbKey] = true
+            local item = { idStr = "455180", dbKey = dbKey, name = L["Elixir of Determination"] or "明志灵药", icon = 608949, defaultIdx = 5 }
+            local tCat = "Defensive" -- 默认放入防守组
+            if dbO[dbKey] and dbO[dbKey].category then 
+                local oCat = dbO[dbKey].category
+                if oCat == "Essential" or oCat == "Utility" or oCat == "Defensive" or oCat == "ExtraMonitor" or CDMod.Sandbox["scanned"..oCat] then tCat = oCat end
+            elseif dbO["455180"] and dbO["455180"].category then 
+                local oCat = dbO["455180"].category
+                if oCat == "Essential" or oCat == "Utility" or oCat == "Defensive" or oCat == "ExtraMonitor" or CDMod.Sandbox["scanned"..oCat] then tCat = oCat end
+            end
+            
+            if CDMod.Sandbox["scanned"..tCat] then
+                table.insert(CDMod.Sandbox["scanned"..tCat], item)
+            end
+        end
+    end
 end
 
 local function GetSafeJustify(anchorStr)
@@ -465,10 +486,9 @@ local function DrawSandboxToUI(forcedWidth)
                 
                 btn.mockCd:SetFont(fontPath, catCfg.cdFontSize or 18, "OUTLINE")
                 
-                -- 【核心修复】：应用用户设置的颜色，如果没有配置则给一个默认值
                 local cdC = catCfg.cdFontColor or {r=1, g=0.82, b=0, a=1}; 
                 if catName == "ItemBuff" then 
-                    cdC = catCfg.cdFontColor or {r=0, g=1, b=0, a=1} -- 如果用户没选过，默认给绿色
+                    cdC = catCfg.cdFontColor or {r=0, g=1, b=0, a=1} 
                 end 
                 btn.mockCd:SetTextColor(cdC.r, cdC.g, cdC.b, cdC.a or 1); btn.mockCd:ClearAllPoints()
                 

@@ -26,6 +26,8 @@ local defaults = {
         [5512] = true,     
         [241308] = true,   
         [241304] = true,   
+                [241294] = true,   -- 吞噬之梦药水 (填任意一个星级的基础ID即可)
+        [241288] = true,   -- 鲁莽药水
     },
     customSpells = {},
     customOrder = {},
